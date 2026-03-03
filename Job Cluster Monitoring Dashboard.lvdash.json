@@ -1,227 +1,6 @@
 {
   "datasets": [
     {
-      "name": "4e20b71d",
-      "displayName": "0.prepare_data",
-      "queryLines": [
-        "-- drop table if exists hurcy.default.instance_workload_profiles_tb;\n",
-        "\n",
-        "-- create table hurcy.default.instance_workload_profiles_tb as\n",
-        "-- with tmp_instance_stats as (\n",
-        "--   select\n",
-        "--     cluster_id,\n",
-        "--     driver,\n",
-        "--     node_type,\n",
-        "--     date_trunc('minute', start_time) as start_time,\n",
-        "--     count(instance_id) as node_count_per_minute -- auto-scale 일 경우에 유용\n",
-        "--   from\n",
-        "--     system.compute.node_timeline\n",
-        "--   where\n",
-        "--     start_time >= current_date() - interval 7 days\n",
-        "--     and workspace_id = '984752964297111'\n",
-        "--     and driver = FALSE -- 드라이버 제외\n",
-        "--   group by\n",
-        "--     cluster_id,\n",
-        "--     driver,\n",
-        "--     node_type,\n",
-        "--     date_trunc('minute', start_time)\n",
-        "-- ),\n",
-        "-- tmp2_instance_stats as (\n",
-        "--   select\n",
-        "--     cluster_id,\n",
-        "--     driver,\n",
-        "--     node_type,\n",
-        "--     round(avg(node_count_per_minute), 2) as avg_node_count,\n",
-        "--     round(max(node_count_per_minute), 2) as max_node_count,\n",
-        "--     round(stddev(node_count_per_minute), 2) as stddev_node_count\n",
-        "--   from\n",
-        "--     tmp_instance_stats\n",
-        "--   group by\n",
-        "--     cluster_id,\n",
-        "--     driver,\n",
-        "--     node_type\n",
-        "-- ),\n",
-        "-- instance_stats as (\n",
-        "--   SELECT\n",
-        "--     workspace_id,\n",
-        "--     cluster_id,\n",
-        "--     driver,\n",
-        "--     node_type,\n",
-        "--     instance_id,\n",
-        "--     min(start_time) as instance_start_time,\n",
-        "--     max(end_time) as instance_end_time,\n",
-        "--     avg(cpu_user_percent + cpu_system_percent) as avg_cpu_util,\n",
-        "--     max(cpu_user_percent + cpu_system_percent) as max_cpu_util,\n",
-        "--     avg(cpu_wait_percent) as avg_cpu_wait, --`Avg CPU Wait`,\n",
-        "--     max(cpu_wait_percent) as max_cpu_wait, -- `Max CPU Wait`,\n",
-        "--     avg(mem_used_percent) as avg_mem_util, --`Avg Memory Utilization`,\n",
-        "--     max(mem_used_percent) as max_mem_util, -- `Max Memory Utilization`,\n",
-        "--     avg(network_received_bytes) / (1024 ^ 2) as avg_net_mb_rec_minute, --`Avg Network MB Received per Minute`,\n",
-        "--     avg(network_sent_bytes) / (1024 ^ 2) as avg_net_mb_sent_minute, -- `Avg Network MB Sent per Minute`\n",
-        "--     -- 워크로드 프로필 분류\n",
-        "--     CASE\n",
-        "--       -- 1. CPU 집약적: 평균 CPU 사용률이 60%를 초과하고, 메모리 사용률은 상대적으로 낮음\n",
-        "--       WHEN\n",
-        "--         avg(cpu_user_percent + cpu_system_percent) > 60\n",
-        "--         AND avg(mem_used_percent) < 50\n",
-        "--       THEN\n",
-        "--         'CPU Intensive'\n",
-        "--       -- 2. 메모리 집약적: 평균 메모리 사용률이 60%를 초과하고, CPU 사용률은 상대적으로 낮음\n",
-        "--       WHEN\n",
-        "--         avg(mem_used_percent) > 60\n",
-        "--         AND avg(cpu_user_percent + cpu_system_percent) < 50\n",
-        "--       THEN\n",
-        "--         'Memory Intensive'\n",
-        "--       -- 3. 균형 잡힌 고부하: CPU와 메모리 모두 높은 사용률을 보임\n",
-        "--       WHEN\n",
-        "--         avg(cpu_user_percent + cpu_system_percent) > 60\n",
-        "--         AND avg(mem_used_percent) > 60\n",
-        "--       THEN\n",
-        "--         'Balanced - High Utilization'\n",
-        "--       -- 4. 저활용: CPU와 메모리 모두 지속적으로 낮은 사용률을 보임 (기존 로직)\n",
-        "--       WHEN\n",
-        "--         avg(cpu_user_percent + cpu_system_percent) < 30\n",
-        "--         AND avg(mem_used_percent) < 40\n",
-        "--       THEN\n",
-        "--         'Under-utilized'\n",
-        "--       ELSE 'Balanced - Moderate Utilization'\n",
-        "--     END AS workload_profile\n",
-        "--   FROM\n",
-        "--     system.compute.node_timeline\n",
-        "--   WHERE\n",
-        "--     1 = 1\n",
-        "--     and workspace_id = '984752964297111'\n",
-        "--     and start_time >= date_add(now(), -7) -- 최근 7일 데이터로 분석 범위 제한\n",
-        "--     and driver = FALSE -- 드라이버 제외\n",
-        "--   GROUP BY\n",
-        "--     workspace_id,\n",
-        "--     cluster_id,\n",
-        "--     driver,\n",
-        "--     node_type,\n",
-        "--     instance_id\n",
-        "-- ),\n",
-        "-- instance_workload AS (\n",
-        "--   select\n",
-        "--     c.workspace_id,\n",
-        "--     c.cluster_id,\n",
-        "--     instance_id,\n",
-        "--     driver,\n",
-        "--     node_type,\n",
-        "--     instance_start_time,\n",
-        "--     instance_end_time,\n",
-        "--     avg_node_count,\n",
-        "--     max_node_count,\n",
-        "--     stddev_node_count,\n",
-        "--     avg_cpu_util,\n",
-        "--     max_cpu_util,\n",
-        "--     avg_cpu_wait, --`Avg CPU Wait`,\n",
-        "--     max_cpu_wait, -- `Max CPU Wait`,\n",
-        "--     avg_mem_util, --`Avg Memory Utilization`,\n",
-        "--     max_mem_util, -- `Max Memory Utilization`,\n",
-        "--     avg_net_mb_rec_minute, --`Avg Network MB Received per Minute`,\n",
-        "--     avg_net_mb_sent_minute, -- `Avg Network MB Sent per Minute`\n",
-        "--     workload_profile,\n",
-        "--     t2.policy_id,\n",
-        "--     t2.tags\n",
-        "--   from\n",
-        "--     tmp2_instance_stats as i\n",
-        "--       join instance_stats as c using (cluster_id, driver, node_type)\n",
-        "--       LEFT JOIN (\n",
-        "--         -- This subquery picks the most recent config for each cluster\n",
-        "--         SELECT\n",
-        "--           *,\n",
-        "--           ROW_NUMBER() OVER (PARTITION BY cluster_id ORDER BY change_time DESC) as rn\n",
-        "--         FROM\n",
-        "--           system.compute.clusters\n",
-        "--       ) t2\n",
-        "--         ON t2.cluster_id = c.cluster_id\n",
-        "--         AND t2.rn = 1\n",
-        "--         and t2.workspace_id = c.workspace_id\n",
-        "-- ),\n",
-        "-- exploded_task_runs AS (\n",
-        "--   SELECT\n",
-        "--     tr.workspace_id as workspace_id,\n",
-        "--     tr.job_id,\n",
-        "--     tr.run_id,\n",
-        "--     explode(tr.compute_ids) as cluster_id,\n",
-        "--     tr.period_start_time,\n",
-        "--     tr.period_end_time,\n",
-        "--     tr.termination_code\n",
-        "--   FROM\n",
-        "--     system.lakeflow.job_task_run_timeline tr\n",
-        "--       join (\n",
-        "--         select distinct\n",
-        "--           j.workspace_id,\n",
-        "--           j.job_id,\n",
-        "--           j.name,\n",
-        "--           jt.task_key\n",
-        "--         from\n",
-        "--           system.lakeflow.jobs j\n",
-        "--             LEFT JOIN system.lakeflow.job_tasks jt\n",
-        "--               ON j.workspace_id = jt.workspace_id\n",
-        "--               AND j.job_id = jt.job_id\n",
-        "--       ) j\n",
-        "--         on tr.workspace_id = j.workspace_id\n",
-        "--         and tr.job_id = j.job_id\n",
-        "--   WHERE\n",
-        "--     ARRAY_SIZE(tr.compute_ids) > 0\n",
-        "-- ),\n",
-        "-- task_run_stats as (\n",
-        "--   SELECT\n",
-        "--     tr.workspace_id,\n",
-        "--     tr.cluster_id,\n",
-        "--     tr.job_id,\n",
-        "--     tr.run_id,\n",
-        "--     min(tr.period_start_time) as period_start_time,\n",
-        "--     max(tr.period_end_time) as period_end_time,\n",
-        "--     array_agg(tr.termination_code) as termination_codes\n",
-        "--   FROM\n",
-        "--     exploded_task_runs as tr\n",
-        "--   group by\n",
-        "--     tr.workspace_id,\n",
-        "--     tr.job_id,\n",
-        "--     tr.run_id,\n",
-        "--     tr.cluster_id\n",
-        "--   having\n",
-        "--     array_contains(termination_codes, 'SUCCESS')\n",
-        "-- )\n",
-        "-- select\n",
-        "--   c.workspace_id,\n",
-        "--   c.cluster_id,\n",
-        "--   c.instance_id,\n",
-        "--   c.driver,\n",
-        "--   c.node_type,\n",
-        "--   c.instance_start_time,\n",
-        "--   c.instance_end_time,\n",
-        "--   c.avg_node_count,\n",
-        "--   c.max_node_count,\n",
-        "--   c.stddev_node_count,\n",
-        "--   c.avg_cpu_util,\n",
-        "--   c.max_cpu_util,\n",
-        "--   c.avg_cpu_wait, --`Avg CPU Wait`,\n",
-        "--   c.max_cpu_wait, -- `Max CPU Wait`,\n",
-        "--   c.avg_mem_util, --`Avg Memory Utilization`,\n",
-        "--   c.max_mem_util, -- `Max Memory Utilization`,\n",
-        "--   c.avg_net_mb_rec_minute, --`Avg Network MB Received per Minute`,\n",
-        "--   c.avg_net_mb_sent_minute, -- `Avg Network MB Sent per Minute`\n",
-        "--   c.workload_profile,\n",
-        "--   c.policy_id,\n",
-        "--   c.tags,\n",
-        "--   tr.job_id,\n",
-        "--   tr.run_id,\n",
-        "--   tr.period_start_time,\n",
-        "--   tr.period_end_time,\n",
-        "--   datediff(minute, c.instance_start_time, c.instance_end_time) as cluster_execution_minutes,\n",
-        "--   datediff(minute, tr.period_start_time, tr.period_end_time) as task_run_duration_minutes\n",
-        "-- from\n",
-        "--   instance_workload c left join task_run_stats tr using (workspace_id, cluster_id)\n",
-        "-- where\n",
-        "--   1 = 1\n",
-        "--   and c.instance_start_time <= tr.period_start_time\n",
-        "--   and tr.period_end_time <= date_add(c.instance_end_time, 1)"
-      ]
-    },
-    {
       "name": "35341dc1",
       "displayName": "1.policy_list",
       "queryLines": [
@@ -237,52 +16,344 @@
       "name": "0d52ef71",
       "displayName": "2.cluster_workload_profile_data_overview",
       "queryLines": [
-        "with tmp as (\n",
-        "  select distinct\n",
-        "    c.workspace_id,\n",
-        "    c.cluster_id,\n",
-        "    c.workload_profile,\n",
-        "    c.policy_id,\n",
-        "    min(c.instance_start_time) as cluster_start_time,\n",
-        "    max(c.instance_end_time) as cluster_end_time,\n",
-        "    round(avg(c.avg_node_count), 2) as avg_node_count_per_minute,\n",
-        "    round(max(c.max_node_count), 2) as max_node_count_per_minute,\n",
-        "    round(avg(c.avg_cpu_util), 2) as avg_cpu_util_per_cluster,\n",
-        "    round(max(c.avg_cpu_util), 2) as max_cpu_util_per_cluster,\n",
-        "    round(avg(c.avg_cpu_wait), 2) as avg_cpu_wait_per_cluster,\n",
-        "    round(max(c.avg_cpu_wait), 2) as max_cpu_wait_per_cluster,\n",
-        "    round(avg(c.avg_mem_util), 2) as avg_mem_util_per_cluster,\n",
-        "    round(max(c.avg_mem_util), 2) as max_mem_util_per_cluster,\n",
-        "    round(avg(c.avg_net_mb_rec_minute), 2) as avg_net_mb_rec_minute_per_cluster,\n",
-        "    round(avg(c.avg_net_mb_sent_minute), 2) as avg_net_mb_sent_minute_per_cluster\n",
-        "  from\n",
-        "    hurcy.default.instance_workload_profiles_tb as c\n",
-        "  where\n",
-        "    c.instance_start_time > :from\n",
-        "    and c.instance_end_time < :to\n",
-        "    AND (\n",
-        "      array_contains(:policy_id, 'ALL')\n",
-        "      OR array_contains(:policy_id, c.policy_id)\n",
-        "    )\n",
-        "  group by\n",
-        "    c.workspace_id,\n",
-        "    c.cluster_id,\n",
-        "    c.workload_profile,\n",
-        "    c.policy_id\n",
-        ")\n",
-        "select\n",
-        "  *,\n",
-        "  datediff(minute, cluster_start_time, cluster_end_time) as cluster_execution_minutes\n",
-        "from\n",
-        "  tmp\n",
-        "order by\n",
-        "  workload_profile desc,\n",
-        "  cluster_execution_minutes desc;"
+        "-- #####################################################################\n",
+        "-- 대시보드 데이터셋 쿼리\n",
+        "-- #####################################################################\n",
+        "-- 아래 쿼리들은 파이프라인 외부(Lakeview 대시보드)에서 실행한다.\n",
+        "-- MV가 파이프라인 target catalog/schema에 배포된 후,\n",
+        "-- 대시보드에서 전체 경로(예: hurcy.default.instance_workload_profiles_mv)로\n",
+        "-- 참조한다.\n",
+        "--\n",
+        "-- Dashboard Parameters:\n",
+        "--   :start_date  - 조회 시작일 (DATE)\n",
+        "--   :end_date    - 조회 종료일 (DATE)\n",
+        "--   :policy_id   - 클러스터 정책 ID 필터 (MULTI STRING)\n",
+        "-- #####################################################################\n",
+        "\n",
+        "\n",
+        "-- =====================================================================\n",
+        "-- 대시보드 1: 클러스터 워크로드 프로파일 개요\n",
+        "-- =====================================================================\n",
+        "-- 클러스터 단위 집계: 워크로드 프로파일별 활용률, 실행시간, 비용.\n",
+        "-- 대시보드 \"Cluster profiles\" 페이지용 데이터셋.\n",
+        "-- =====================================================================\n",
+        "\n",
+        "SELECT\n",
+        "  c.workspace_id,\n",
+        "  c.cluster_id,\n",
+        "  c.cluster_name,\n",
+        "  c.cluster_source,\n",
+        "  c.workload_profile,\n",
+        "  c.policy_id,\n",
+        "  c.owned_by,\n",
+        "  c.worker_node_type,\n",
+        "  c.configured_workers,\n",
+        "  c.min_autoscale_workers,\n",
+        "  c.max_autoscale_workers,\n",
+        "  c.dbr_version,\n",
+        "\n",
+        "  MIN(c.instance_start_time)                          AS cluster_start_time,\n",
+        "  MAX(c.instance_end_time)                            AS cluster_end_time,\n",
+        "  DATEDIFF(MINUTE, MIN(c.instance_start_time),\n",
+        "                   MAX(c.instance_end_time))          AS cluster_execution_minutes,\n",
+        "\n",
+        "  ROUND(AVG(c.avg_node_count), 2)                     AS avg_node_count_per_minute,\n",
+        "  ROUND(MAX(c.max_node_count), 2)                     AS max_node_count_per_minute,\n",
+        "\n",
+        "  ROUND(AVG(c.avg_cpu_util), 2)                        AS avg_cpu_util_per_cluster,\n",
+        "  ROUND(MAX(c.max_cpu_util), 2)                        AS max_cpu_util_per_cluster,\n",
+        "  ROUND(AVG(c.avg_cpu_wait), 2)                        AS avg_cpu_wait_per_cluster,\n",
+        "  ROUND(MAX(c.max_cpu_wait), 2)                        AS max_cpu_wait_per_cluster,\n",
+        "  ROUND(AVG(c.avg_mem_util), 2)                        AS avg_mem_util_per_cluster,\n",
+        "  ROUND(MAX(c.max_mem_util), 2)                        AS max_mem_util_per_cluster,\n",
+        "  ROUND(AVG(c.avg_net_mb_rec_minute), 2)               AS avg_net_mb_rec_minute_per_cluster,\n",
+        "  ROUND(AVG(c.avg_net_mb_sent_minute), 2)              AS avg_net_mb_sent_minute_per_cluster,\n",
+        "\n",
+        "  ROUND(SUM(DISTINCT c.total_dbus), 4)                 AS total_dbus,\n",
+        "  ROUND(SUM(DISTINCT c.total_cost_usd), 2)             AS total_cost_usd\n",
+        "FROM hurcy.default.instance_workload_profiles_mv AS c\n",
+        "WHERE \n",
+        "   c.instance_start_time >= :start_date\n",
+        "   AND c.instance_end_time   <  :end_date\n",
+        "  AND (\n",
+        "    :policy_id is null\n",
+        "    OR ARRAY_CONTAINS(:policy_id, c.policy_id)\n",
+        "  )\n",
+        "GROUP BY\n",
+        "  c.workspace_id,\n",
+        "  c.cluster_id,\n",
+        "  c.cluster_name,\n",
+        "  c.cluster_source,\n",
+        "  c.workload_profile,\n",
+        "  c.policy_id,\n",
+        "  c.owned_by,\n",
+        "  c.worker_node_type,\n",
+        "  c.configured_workers,\n",
+        "  c.min_autoscale_workers,\n",
+        "  c.max_autoscale_workers,\n",
+        "  c.dbr_version\n",
+        "ORDER BY\n",
+        "  workload_profile DESC,\n",
+        "  total_cost_usd DESC,\n",
+        "  cluster_execution_minutes DESC;\n"
       ],
       "parameters": [
         {
-          "displayName": "from",
-          "keyword": "from",
+          "displayName": "policy_id",
+          "keyword": "policy_id",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "start_date",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-01T00:00:00.000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "end_date",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "now/d"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "080e18ac",
+      "displayName": "3.job_cluster_workload_profiles",
+      "queryLines": [
+        "-- =====================================================================\n",
+        "-- 대시보드 2: 잡 클러스터 워크로드 프로파일 상세\n",
+        "-- =====================================================================\n",
+        "-- 잡 실행 단위로 인스턴스별 활용률, 비용, 메트릭 임계치를 보여준다.\n",
+        "-- 대시보드 \"Instance profile\" 페이지용 데이터셋.\n",
+        "-- =====================================================================\n",
+        "\n",
+        "SELECT\n",
+        "  tr.job_id,\n",
+        "  tr.job_name,\n",
+        "  tr.run_id,\n",
+        "  tr.job_run_id,\n",
+        "  tr.task_key,\n",
+        "  tr.period_start_time,\n",
+        "  tr.period_end_time,\n",
+        "  DATEDIFF(MINUTE, tr.period_start_time, tr.period_end_time) AS task_run_duration_minutes,\n",
+        "  tr.workload_profile,\n",
+        "  tr.policy_id,\n",
+        "  tr.cluster_id,\n",
+        "  tr.cluster_name,\n",
+        "  tr.cluster_source,\n",
+        "  tr.instance_id,\n",
+        "  tr.driver,\n",
+        "  tr.node_type,\n",
+        "  tr.instance_start_time,\n",
+        "  tr.instance_end_time,\n",
+        "\n",
+        "  tr.avg_node_count,\n",
+        "  tr.max_node_count,\n",
+        "  tr.stddev_node_count,\n",
+        "\n",
+        "  tr.avg_cpu_util,\n",
+        "  tr.max_cpu_util,\n",
+        "  tr.avg_cpu_wait,\n",
+        "  tr.max_cpu_wait,\n",
+        "  tr.avg_mem_util,\n",
+        "  tr.max_mem_util,\n",
+        "  tr.avg_net_mb_rec_minute,\n",
+        "  tr.avg_net_mb_sent_minute,\n",
+        "\n",
+        "  tr.total_dbus,\n",
+        "  tr.total_cost_usd,\n",
+        "\n",
+        "  CASE\n",
+        "    WHEN tr.avg_cpu_util < 30  THEN 'cpu_low_threshold (<30%)'\n",
+        "    WHEN tr.avg_cpu_util <= 60 THEN 'cpu_mid_threshold (<=60%)'\n",
+        "    WHEN tr.avg_cpu_util > 60  THEN 'cpu_high_threshold (>60%)'\n",
+        "  END AS cpu_metric_level,\n",
+        "  CASE\n",
+        "    WHEN tr.avg_mem_util < 40  THEN 'mem_low_threshold (<40%)'\n",
+        "    WHEN tr.avg_mem_util <= 60 THEN 'mem_mid_threshold (<=60%)'\n",
+        "    WHEN tr.avg_mem_util > 60  THEN 'mem_high_threshold (>60%)'\n",
+        "  END AS mem_metric_level\n",
+        "FROM hurcy.default.instance_workload_profiles_mv AS tr\n",
+        "WHERE tr.period_start_time >= :start_date\n",
+        "  AND tr.period_end_time   <  :end_date\n",
+        "  AND (\n",
+        "    :policy_id is null\n",
+        "    OR ARRAY_CONTAINS(:policy_id, tr.policy_id)\n",
+        "  )\n",
+        "ORDER BY\n",
+        "  total_cost_usd DESC,\n",
+        "  workload_profile DESC,\n",
+        "  task_run_duration_minutes DESC;"
+      ],
+      "parameters": [
+        {
+          "displayName": "policy_id",
+          "keyword": "policy_id",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "start_date",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "now-14d/d"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "end_date",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "now/d"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2b3cbec0",
+      "displayName": "4.right_sizing_recommendations",
+      "queryLines": [
+        "\n",
+        "-- =====================================================================\n",
+        "-- 대시보드 3: 라이트사이징 권고\n",
+        "-- =====================================================================\n",
+        "-- 클러스터별 활용률을 집계하고, 자동화된 사이징 분류와 예상 절감액을\n",
+        "-- 제시한다.\n",
+        "-- =====================================================================\n",
+        "\n",
+        "WITH cluster_summary AS (\n",
+        "  SELECT\n",
+        "    workspace_id,\n",
+        "    cluster_id,\n",
+        "    cluster_name,\n",
+        "    cluster_source,\n",
+        "    owned_by,\n",
+        "    worker_node_type,\n",
+        "    configured_workers,\n",
+        "    min_autoscale_workers,\n",
+        "    max_autoscale_workers,\n",
+        "    dbr_version,\n",
+        "    policy_id,\n",
+        "    workload_profile,\n",
+        "\n",
+        "    ROUND(AVG(avg_cpu_util), 2)                        AS avg_cpu_percent,\n",
+        "    ROUND(PERCENTILE_APPROX(avg_cpu_util, 0.95), 2)    AS p95_cpu_percent,\n",
+        "    ROUND(MAX(max_cpu_util), 2)                        AS max_cpu_percent,\n",
+        "    ROUND(AVG(avg_mem_util), 2)                        AS avg_mem_percent,\n",
+        "    ROUND(PERCENTILE_APPROX(avg_mem_util, 0.95), 2)    AS p95_mem_percent,\n",
+        "    ROUND(MAX(max_mem_util), 2)                        AS max_mem_percent,\n",
+        "    ROUND(AVG(avg_cpu_wait), 2)                        AS avg_cpu_wait_percent,\n",
+        "    ROUND(AVG(avg_net_mb_rec_minute), 2)               AS avg_net_mb_rec,\n",
+        "    ROUND(AVG(avg_net_mb_sent_minute), 2)              AS avg_net_mb_sent,\n",
+        "\n",
+        "    ROUND(AVG(avg_node_count), 2)                      AS avg_node_count,\n",
+        "    ROUND(MAX(max_node_count), 2)                      AS max_node_count,\n",
+        "    COUNT(DISTINCT instance_id)                        AS total_instances,\n",
+        "    COUNT(DISTINCT job_id)                             AS distinct_job_count,\n",
+        "\n",
+        "    ROUND(SUM(DISTINCT total_dbus), 4)                 AS total_dbus,\n",
+        "    ROUND(SUM(DISTINCT total_cost_usd), 2)             AS total_cost_usd\n",
+        "  FROM hurcy.default.instance_workload_profiles_mv\n",
+        "  WHERE instance_start_time >= :start_date\n",
+        "    AND instance_end_time   <  :end_date\n",
+        "    AND (\n",
+        "      :policy_id is null\n",
+        "      OR ARRAY_CONTAINS(:policy_id, policy_id)\n",
+        "    )\n",
+        "  GROUP BY\n",
+        "    workspace_id, cluster_id, cluster_name, cluster_source,\n",
+        "    owned_by, worker_node_type, configured_workers,\n",
+        "    min_autoscale_workers, max_autoscale_workers,\n",
+        "    dbr_version, policy_id, workload_profile\n",
+        ")\n",
+        "\n",
+        "SELECT\n",
+        "  *,\n",
+        "\n",
+        "  CASE\n",
+        "    WHEN p95_cpu_percent < 20 AND p95_mem_percent < 30\n",
+        "      THEN 'STRONGLY_OVERSIZED'\n",
+        "    WHEN avg_cpu_percent < 30 AND avg_mem_percent < 40\n",
+        "      THEN 'POTENTIALLY_OVERSIZED'\n",
+        "    WHEN p95_cpu_percent > 90 OR p95_mem_percent > 90\n",
+        "      THEN 'POTENTIALLY_UNDERSIZED'\n",
+        "    WHEN avg_cpu_wait_percent > 10\n",
+        "      THEN 'IO_BOTTLENECK'\n",
+        "    ELSE 'APPROPRIATE'\n",
+        "  END AS sizing_signal,\n",
+        "\n",
+        "  CASE\n",
+        "    WHEN p95_cpu_percent < 20 AND p95_mem_percent < 30\n",
+        "      THEN 'P95 CPU/Memory 모두 매우 낮음. 노드 타입 축소 또는 워커 수 감소를 강력 권고.'\n",
+        "    WHEN avg_cpu_percent < 30 AND avg_mem_percent < 40\n",
+        "      THEN '평균 CPU/Memory 낮음. 더 작은 구성으로 전환 검토 필요.'\n",
+        "    WHEN p95_cpu_percent > 90 OR p95_mem_percent > 90\n",
+        "      THEN 'P95 리소스 사용률이 한계에 근접. 노드 타입 확대 또는 워커 추가 검토.'\n",
+        "    WHEN avg_cpu_wait_percent > 10\n",
+        "      THEN 'CPU I/O 대기가 높음. 스토리지 최적화 또는 디스크 성능 개선 권고.'\n",
+        "    ELSE '현재 사이징이 워크로드에 적합함.'\n",
+        "  END AS recommendation,\n",
+        "\n",
+        "  ROUND(\n",
+        "    CASE\n",
+        "      WHEN avg_cpu_percent < 30 AND avg_mem_percent < 40\n",
+        "        THEN total_cost_usd * (1.0 - GREATEST(avg_cpu_percent, avg_mem_percent) / 100.0) * 0.5\n",
+        "      ELSE 0\n",
+        "    END, 2\n",
+        "  ) AS estimated_savings_usd\n",
+        "\n",
+        "FROM cluster_summary\n",
+        "ORDER BY total_cost_usd DESC;\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "start_date",
+          "keyword": "start_date",
           "dataType": "DATE",
           "defaultSelection": {
             "values": {
@@ -296,8 +367,8 @@
           }
         },
         {
-          "displayName": "to",
-          "keyword": "to",
+          "displayName": "end_date",
+          "keyword": "end_date",
           "dataType": "DATE",
           "defaultSelection": {
             "values": {
@@ -316,119 +387,8 @@
           "dataType": "STRING",
           "complexType": "MULTI",
           "defaultSelection": {
-            "values": {
-              "dataType": "STRING",
-              "values": [
-                {
-                  "value": "ALL"
-                }
-              ]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "080e18ac",
-      "displayName": "3.job_cluster_workload_profiles",
-      "queryLines": [
-        "select\n",
-        "  tr.job_id,\n",
-        "  tr.run_id,\n",
-        "  tr.period_start_time,\n",
-        "  tr.period_end_time,\n",
-        "  datediff(minute, tr.period_start_time, tr.period_end_time) as task_run_duration_minutes,\n",
-        "  tr.workload_profile,\n",
-        "  tr.policy_id,\n",
-        "  tr.cluster_id,\n",
-        "  tr.instance_id,\n",
-        "  tr.driver,\n",
-        "  tr.node_type,\n",
-        "  tr.instance_start_time,\n",
-        "  tr.instance_end_time,\n",
-        "  tr.avg_node_count,\n",
-        "  tr.max_node_count,\n",
-        "  tr.stddev_node_count,\n",
-        "  tr.avg_cpu_util,\n",
-        "  tr.max_cpu_util,\n",
-        "  tr.avg_cpu_wait,\n",
-        "  --`Avg CPU Wait`,\n",
-        "  tr.max_cpu_wait,\n",
-        "  -- `Max CPU Wait`,\n",
-        "  tr.avg_mem_util,\n",
-        "  --`Avg Memory Utilization`,\n",
-        "  tr.max_mem_util,\n",
-        "  -- `Max Memory Utilization`,\n",
-        "  tr.avg_net_mb_rec_minute,\n",
-        "  --`Avg Network MB Received per Minute`,\n",
-        "  tr.avg_net_mb_sent_minute, -- `Avg Network MB Sent per Minute`\n",
-        "  case\n",
-        "    when tr.avg_cpu_util < 30 then 'cpu_low_threshold (<30%)'\n",
-        "    when tr.avg_cpu_util <= 60 then 'cpu_mid_threshold (<=60%)'\n",
-        "    when tr.avg_cpu_util > 60 then 'cpu_high_threshold (>60%)'\n",
-        "  end as cpu_metric_level,\n",
-        "  case\n",
-        "    when tr.avg_mem_util < 40 then 'mem_low_threshold (40%)'\n",
-        "    when tr.avg_mem_util <= 60 then 'mem_mid_threshold (60%)'\n",
-        "    when tr.avg_mem_util > 60 then 'mem_high_threshold (60%)'\n",
-        "  end as mem_metric_level\n",
-        "from\n",
-        "  hurcy.default.instance_workload_profiles_tb as tr\n",
-        "where\n",
-        "  tr.period_start_time > :from\n",
-        "  and tr.period_end_time < :to\n",
-        "  AND (\n",
-        "      array_contains(:policy_id, 'ALL')\n",
-        "      OR array_contains(:policy_id, tr.policy_id)\n",
-        "    )\n",
-        "order by \n",
-        "  workload_profile desc,\n",
-        "  task_run_duration_minutes desc;"
-      ],
-      "parameters": [
-        {
-          "displayName": "from",
-          "keyword": "from",
-          "dataType": "DATE",
-          "defaultSelection": {
-            "values": {
-              "dataType": "DATE",
-              "values": [
-                {
-                  "value": "2025-10-31T00:00:00.000"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "displayName": "to",
-          "keyword": "to",
-          "dataType": "DATE",
-          "defaultSelection": {
-            "values": {
-              "dataType": "DATE",
-              "values": [
-                {
-                  "value": "now/d"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "displayName": "policy_id",
-          "keyword": "policy_id",
-          "dataType": "STRING",
-          "complexType": "MULTI",
-          "defaultSelection": {
-            "values": {
-              "dataType": "STRING",
-              "values": [
-                {
-                  "value": "ALL"
-                }
-              ]
+            "operator": {
+              "operator": "AND"
             }
           }
         }
@@ -452,7 +412,7 @@
           "position": {
             "x": 0,
             "y": 0,
-            "width": 6,
+            "width": 12,
             "height": 1
           }
         },
@@ -509,7 +469,7 @@
           "position": {
             "x": 0,
             "y": 2,
-            "width": 3,
+            "width": 6,
             "height": 6
           }
         },
@@ -608,10 +568,10 @@
             }
           },
           "position": {
-            "x": 3,
+            "x": 0,
             "y": 8,
-            "width": 3,
-            "height": 4
+            "width": 12,
+            "height": 6
           }
         },
         {
@@ -1185,8 +1145,8 @@
           },
           "position": {
             "x": 0,
-            "y": 13,
-            "width": 6,
+            "y": 15,
+            "width": 12,
             "height": 6
           }
         },
@@ -1201,8 +1161,8 @@
           },
           "position": {
             "x": 0,
-            "y": 12,
-            "width": 6,
+            "y": 14,
+            "width": 12,
             "height": 1
           }
         },
@@ -1216,12 +1176,12 @@
                   "datasetName": "0d52ef71",
                   "fields": [
                     {
-                      "name": "bin(cluster_execution_minutes, binWidth=50)",
-                      "expression": "BIN_FLOOR(`cluster_execution_minutes`, 50)"
+                      "name": "bin(cluster_execution_minutes, binWidth=10)",
+                      "expression": "BIN_FLOOR(`cluster_execution_minutes`, 10)"
                     },
                     {
-                      "name": "count(*)",
-                      "expression": "COUNT(`*`)"
+                      "name": "countdistinct(cluster_execution_minutes)",
+                      "expression": "COUNT(DISTINCT `cluster_execution_minutes`)"
                     }
                   ],
                   "disaggregated": false
@@ -1230,33 +1190,35 @@
             ],
             "spec": {
               "version": 3,
-              "widgetType": "histogram",
-              "encodings": {
-                "x": {
-                  "fieldName": "bin(cluster_execution_minutes, binWidth=50)",
-                  "scale": {
-                    "type": "quantitative"
-                  },
-                  "displayName": "cluster_execution_minutes"
-                },
-                "y": {
-                  "fieldName": "count(*)",
-                  "scale": {
-                    "type": "quantitative"
-                  },
-                  "displayName": "Count of Records"
-                }
-              },
               "frame": {
                 "title": "Cluster Execution Minutes Distribution",
                 "showTitle": true
+              },
+              "widgetType": "histogram",
+              "encodings": {
+                "x": {
+                  "fieldName": "bin(cluster_execution_minutes, binWidth=10)",
+                  "axis": {
+                    "hideTitle": false
+                  },
+                  "displayName": "cluster_execution_minutes",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "countdistinct(cluster_execution_minutes)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
               }
             }
           },
           "position": {
-            "x": 3,
+            "x": 6,
             "y": 2,
-            "width": 3,
+            "width": 6,
             "height": 6
           }
         },
@@ -1265,13 +1227,13 @@
             "name": "d07a85d4",
             "queries": [
               {
-                "name": "parameter_dashboards/01f08fe5430717eeb54d495a1979f251/datasets/01f091692fd01bf38beb4719a89922f2_from",
+                "name": "parameter_dashboards/01f116ff0c3113c8960b0da8dea3ac20/datasets/01f116ff0c311a0fb32a6daf2d453d9e_start_date",
                 "query": {
                   "datasetName": "0d52ef71",
                   "parameters": [
                     {
-                      "name": "from",
-                      "keyword": "from"
+                      "name": "start_date",
+                      "keyword": "start_date"
                     }
                   ],
                   "disaggregated": false
@@ -1280,24 +1242,24 @@
             ],
             "spec": {
               "version": 2,
+              "frame": {
+                "showTitle": true
+              },
               "widgetType": "filter-date-picker",
               "encodings": {
                 "fields": [
                   {
-                    "parameterName": "from",
-                    "queryName": "parameter_dashboards/01f08fe5430717eeb54d495a1979f251/datasets/01f091692fd01bf38beb4719a89922f2_from"
+                    "parameterName": "start_date",
+                    "queryName": "parameter_dashboards/01f116ff0c3113c8960b0da8dea3ac20/datasets/01f116ff0c311a0fb32a6daf2d453d9e_start_date"
                   }
                 ]
-              },
-              "frame": {
-                "showTitle": true
               }
             }
           },
           "position": {
             "x": 0,
             "y": 1,
-            "width": 2,
+            "width": 4,
             "height": 1
           }
         },
@@ -1306,13 +1268,13 @@
             "name": "1aa8ccce",
             "queries": [
               {
-                "name": "parameter_dashboards/01f08fe5430717eeb54d495a1979f251/datasets/01f091692fd01bf38beb4719a89922f2_to",
+                "name": "parameter_dashboards/01f116ff0c3113c8960b0da8dea3ac20/datasets/01f116ff0c311a0fb32a6daf2d453d9e_end_date",
                 "query": {
                   "datasetName": "0d52ef71",
                   "parameters": [
                     {
-                      "name": "to",
-                      "keyword": "to"
+                      "name": "end_date",
+                      "keyword": "end_date"
                     }
                   ],
                   "disaggregated": false
@@ -1321,24 +1283,24 @@
             ],
             "spec": {
               "version": 2,
+              "frame": {
+                "showTitle": true
+              },
               "widgetType": "filter-date-picker",
               "encodings": {
                 "fields": [
                   {
-                    "parameterName": "to",
-                    "queryName": "parameter_dashboards/01f08fe5430717eeb54d495a1979f251/datasets/01f091692fd01bf38beb4719a89922f2_to"
+                    "parameterName": "end_date",
+                    "queryName": "parameter_dashboards/01f116ff0c3113c8960b0da8dea3ac20/datasets/01f116ff0c311a0fb32a6daf2d453d9e_end_date"
                   }
                 ]
-              },
-              "frame": {
-                "showTitle": true
               }
             }
           },
           "position": {
-            "x": 2,
+            "x": 4,
             "y": 1,
-            "width": 2,
+            "width": 4,
             "height": 1
           }
         },
@@ -1415,14 +1377,15 @@
             }
           },
           "position": {
-            "x": 4,
+            "x": 8,
             "y": 1,
-            "width": 2,
+            "width": 4,
             "height": 1
           }
         }
       ],
-      "pageType": "PAGE_TYPE_CANVAS"
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
     },
     {
       "name": "e39f8ecc",
@@ -1433,13 +1396,13 @@
             "name": "dbe0701c",
             "queries": [
               {
-                "name": "parameter_dashboards/01f08fe5430717eeb54d495a1979f251/datasets/01f091692fd01bf38beb4719a89922f2_from",
+                "name": "parameter_dashboards/01f116ff0c3113c8960b0da8dea3ac20/datasets/01f116ff0c311a15b0a5369ead90634c_start_date",
                 "query": {
-                  "datasetName": "0d52ef71",
+                  "datasetName": "080e18ac",
                   "parameters": [
                     {
-                      "name": "from",
-                      "keyword": "from"
+                      "name": "start_date",
+                      "keyword": "start_date"
                     }
                   ],
                   "disaggregated": false
@@ -1448,29 +1411,17 @@
             ],
             "spec": {
               "version": 2,
+              "frame": {
+                "showTitle": true
+              },
               "widgetType": "filter-date-picker",
               "encodings": {
                 "fields": [
                   {
-                    "parameterName": "from",
-                    "queryName": "parameter_dashboards/01f08fe5430717eeb54d495a1979f251/datasets/01f091692fd01bf38beb4719a89922f2_from"
+                    "parameterName": "start_date",
+                    "queryName": "parameter_dashboards/01f116ff0c3113c8960b0da8dea3ac20/datasets/01f116ff0c311a15b0a5369ead90634c_start_date"
                   }
                 ]
-              },
-              "frame": {
-                "showTitle": true
-              },
-              "selection": {
-                "defaultSelection": {
-                  "values": {
-                    "dataType": "DATE",
-                    "values": [
-                      {
-                        "value": "now-7d/d"
-                      }
-                    ]
-                  }
-                }
               }
             }
           },
@@ -1486,13 +1437,13 @@
             "name": "77390f9c",
             "queries": [
               {
-                "name": "parameter_dashboards/01f08fe5430717eeb54d495a1979f251/datasets/01f091692fd01bf38beb4719a89922f2_to",
+                "name": "parameter_dashboards/01f116ff0c3113c8960b0da8dea3ac20/datasets/01f116ff0c311a15b0a5369ead90634c_end_date",
                 "query": {
-                  "datasetName": "0d52ef71",
+                  "datasetName": "080e18ac",
                   "parameters": [
                     {
-                      "name": "to",
-                      "keyword": "to"
+                      "name": "end_date",
+                      "keyword": "end_date"
                     }
                   ],
                   "disaggregated": false
@@ -1501,29 +1452,17 @@
             ],
             "spec": {
               "version": 2,
+              "frame": {
+                "showTitle": true
+              },
               "widgetType": "filter-date-picker",
               "encodings": {
                 "fields": [
                   {
-                    "parameterName": "to",
-                    "queryName": "parameter_dashboards/01f08fe5430717eeb54d495a1979f251/datasets/01f091692fd01bf38beb4719a89922f2_to"
+                    "parameterName": "end_date",
+                    "queryName": "parameter_dashboards/01f116ff0c3113c8960b0da8dea3ac20/datasets/01f116ff0c311a15b0a5369ead90634c_end_date"
                   }
                 ]
-              },
-              "frame": {
-                "showTitle": true
-              },
-              "selection": {
-                "defaultSelection": {
-                  "values": {
-                    "dataType": "DATE",
-                    "values": [
-                      {
-                        "value": "now/d"
-                      }
-                    ]
-                  }
-                }
               }
             }
           },
@@ -2566,6 +2505,562 @@
         }
       ],
       "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "dde3ccc4",
+      "displayName": "Right Sizing",
+      "layout": [
+        {
+          "widget": {
+            "name": "9c391deb",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "2b3cbec0",
+                  "fields": [
+                    {
+                      "name": "workspace_id",
+                      "expression": "`workspace_id`"
+                    },
+                    {
+                      "name": "cluster_id",
+                      "expression": "`cluster_id`"
+                    },
+                    {
+                      "name": "cluster_name",
+                      "expression": "`cluster_name`"
+                    },
+                    {
+                      "name": "cluster_source",
+                      "expression": "`cluster_source`"
+                    },
+                    {
+                      "name": "owned_by",
+                      "expression": "`owned_by`"
+                    },
+                    {
+                      "name": "worker_node_type",
+                      "expression": "`worker_node_type`"
+                    },
+                    {
+                      "name": "configured_workers",
+                      "expression": "`configured_workers`"
+                    },
+                    {
+                      "name": "min_autoscale_workers",
+                      "expression": "`min_autoscale_workers`"
+                    },
+                    {
+                      "name": "max_autoscale_workers",
+                      "expression": "`max_autoscale_workers`"
+                    },
+                    {
+                      "name": "dbr_version",
+                      "expression": "`dbr_version`"
+                    },
+                    {
+                      "name": "policy_id",
+                      "expression": "`policy_id`"
+                    },
+                    {
+                      "name": "workload_profile",
+                      "expression": "`workload_profile`"
+                    },
+                    {
+                      "name": "avg_cpu_percent",
+                      "expression": "`avg_cpu_percent`"
+                    },
+                    {
+                      "name": "p95_cpu_percent",
+                      "expression": "`p95_cpu_percent`"
+                    },
+                    {
+                      "name": "max_cpu_percent",
+                      "expression": "`max_cpu_percent`"
+                    },
+                    {
+                      "name": "avg_mem_percent",
+                      "expression": "`avg_mem_percent`"
+                    },
+                    {
+                      "name": "p95_mem_percent",
+                      "expression": "`p95_mem_percent`"
+                    },
+                    {
+                      "name": "max_mem_percent",
+                      "expression": "`max_mem_percent`"
+                    },
+                    {
+                      "name": "avg_cpu_wait_percent",
+                      "expression": "`avg_cpu_wait_percent`"
+                    },
+                    {
+                      "name": "avg_net_mb_rec",
+                      "expression": "`avg_net_mb_rec`"
+                    },
+                    {
+                      "name": "avg_net_mb_sent",
+                      "expression": "`avg_net_mb_sent`"
+                    },
+                    {
+                      "name": "avg_node_count",
+                      "expression": "`avg_node_count`"
+                    },
+                    {
+                      "name": "max_node_count",
+                      "expression": "`max_node_count`"
+                    },
+                    {
+                      "name": "total_instances",
+                      "expression": "`total_instances`"
+                    },
+                    {
+                      "name": "distinct_job_count",
+                      "expression": "`distinct_job_count`"
+                    },
+                    {
+                      "name": "total_dbus",
+                      "expression": "`total_dbus`"
+                    },
+                    {
+                      "name": "total_cost_usd",
+                      "expression": "`total_cost_usd`"
+                    },
+                    {
+                      "name": "sizing_signal",
+                      "expression": "`sizing_signal`"
+                    },
+                    {
+                      "name": "recommendation",
+                      "expression": "`recommendation`"
+                    },
+                    {
+                      "name": "estimated_savings_usd",
+                      "expression": "`estimated_savings_usd`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "workspace_id"
+                  },
+                  {
+                    "fieldName": "cluster_id"
+                  },
+                  {
+                    "fieldName": "cluster_name"
+                  },
+                  {
+                    "fieldName": "cluster_source"
+                  },
+                  {
+                    "fieldName": "owned_by"
+                  },
+                  {
+                    "fieldName": "worker_node_type"
+                  },
+                  {
+                    "fieldName": "configured_workers"
+                  },
+                  {
+                    "fieldName": "min_autoscale_workers"
+                  },
+                  {
+                    "fieldName": "max_autoscale_workers"
+                  },
+                  {
+                    "fieldName": "dbr_version"
+                  },
+                  {
+                    "fieldName": "policy_id"
+                  },
+                  {
+                    "fieldName": "workload_profile"
+                  },
+                  {
+                    "fieldName": "avg_cpu_percent"
+                  },
+                  {
+                    "fieldName": "p95_cpu_percent"
+                  },
+                  {
+                    "fieldName": "max_cpu_percent"
+                  },
+                  {
+                    "fieldName": "avg_mem_percent"
+                  },
+                  {
+                    "fieldName": "p95_mem_percent"
+                  },
+                  {
+                    "fieldName": "max_mem_percent"
+                  },
+                  {
+                    "fieldName": "avg_cpu_wait_percent"
+                  },
+                  {
+                    "fieldName": "avg_net_mb_rec"
+                  },
+                  {
+                    "fieldName": "avg_net_mb_sent"
+                  },
+                  {
+                    "fieldName": "avg_node_count"
+                  },
+                  {
+                    "fieldName": "max_node_count"
+                  },
+                  {
+                    "fieldName": "total_instances"
+                  },
+                  {
+                    "fieldName": "distinct_job_count"
+                  },
+                  {
+                    "fieldName": "total_dbus"
+                  },
+                  {
+                    "fieldName": "total_cost_usd"
+                  },
+                  {
+                    "fieldName": "sizing_signal"
+                  },
+                  {
+                    "fieldName": "recommendation"
+                  },
+                  {
+                    "fieldName": "estimated_savings_usd"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 12,
+            "height": 9
+          }
+        },
+        {
+          "widget": {
+            "name": "1ce26e54",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "2b3cbec0",
+                  "fields": [
+                    {
+                      "name": "countdistinct(workload_profile)",
+                      "expression": "COUNT(DISTINCT `workload_profile`)"
+                    },
+                    {
+                      "name": "sum(estimated_savings_usd)",
+                      "expression": "SUM(`estimated_savings_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "title": "Estimated Savings by Workload Profile",
+                "showTitle": true
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(estimated_savings_usd)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "displayName": "Estimated Savings (USD)"
+                },
+                "target": {
+                  "fieldName": "countdistinct(workload_profile)",
+                  "displayName": "Workload Profile"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 6,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "94ca6d1c",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "2b3cbec0",
+                  "fields": [
+                    {
+                      "name": "workload_profile",
+                      "expression": "`workload_profile`"
+                    },
+                    {
+                      "name": "cluster_name",
+                      "expression": "`cluster_name`"
+                    },
+                    {
+                      "name": "sum(estimated_savings_usd)",
+                      "expression": "SUM(`estimated_savings_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Top 10 Clusters by Estimated Savings",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "cluster_name",
+                  "displayName": "Cluster Name",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(estimated_savings_usd)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Estimated Savings (USD)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "workload_profile",
+                  "displayName": "Workload Profile",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 1,
+            "width": 6,
+            "height": 11
+          }
+        },
+        {
+          "widget": {
+            "name": "fda4022a",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "2b3cbec0",
+                  "fields": [
+                    {
+                      "name": "workload_profile",
+                      "expression": "`workload_profile`"
+                    },
+                    {
+                      "name": "sizing_signal",
+                      "expression": "`sizing_signal`"
+                    },
+                    {
+                      "name": "sum(total_cost_usd)",
+                      "expression": "SUM(`total_cost_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Total Cost Breakdown by Sizing Signal",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sizing_signal",
+                  "axis": {
+                    "labelAngle": 45
+                  },
+                  "displayName": "Sizing Signal",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(total_cost_usd)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Total Cost (USD)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "workload_profile",
+                  "displayName": "Workload Profile",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 6,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "d937c6a1",
+            "queries": [
+              {
+                "name": "parameter_dashboards/01f116ff0c3113c8960b0da8dea3ac20/datasets/01f11710a7fb1ecc9dfdfa6aef176626_start_date",
+                "query": {
+                  "datasetName": "2b3cbec0",
+                  "parameters": [
+                    {
+                      "name": "start_date",
+                      "keyword": "start_date"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true
+              },
+              "widgetType": "filter-date-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "parameterName": "start_date",
+                    "queryName": "parameter_dashboards/01f116ff0c3113c8960b0da8dea3ac20/datasets/01f11710a7fb1ecc9dfdfa6aef176626_start_date"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 4,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "3b35e6dd",
+            "queries": [
+              {
+                "name": "parameter_dashboards/01f116ff0c3113c8960b0da8dea3ac20/datasets/01f11710a7fb1ecc9dfdfa6aef176626_end_date",
+                "query": {
+                  "datasetName": "2b3cbec0",
+                  "parameters": [
+                    {
+                      "name": "end_date",
+                      "keyword": "end_date"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true
+              },
+              "widgetType": "filter-single-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "parameterName": "end_date",
+                    "queryName": "parameter_dashboards/01f116ff0c3113c8960b0da8dea3ac20/datasets/01f11710a7fb1ecc9dfdfa6aef176626_end_date"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 4,
+            "height": 1
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "ef31ada9",
+      "displayName": "Global Filters",
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1"
     }
   ],
   "uiSettings": {
@@ -2573,7 +3068,8 @@
       "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
     },
     "genieSpace": {
-      "isEnabled": false
+      "isEnabled": false,
+      "enablementMode": "ENABLEMENT_MODE_UNSPECIFIED"
     },
     "applyModeEnabled": false
   }
