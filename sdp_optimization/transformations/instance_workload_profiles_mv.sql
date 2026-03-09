@@ -316,8 +316,27 @@ SELECT
   tr.result_states,
   tr.termination_codes,
 
-  COALESCE(cjc.total_dbus, 0)     AS total_dbus,
-  COALESCE(cjc.total_cost_usd, 0) AS total_cost_usd
+  COALESCE(cjc.total_dbus, 0)     AS total_dbus_raw,
+  COALESCE(cjc.total_cost_usd, 0) AS total_cost_usd_raw,
+
+  -- 비용 중복 제거: (cluster, job_run) 단위 비용이 instance × task fan-out으로
+  -- 부풀려지는 것을 방지. 동일 (cluster, job_run) 그룹 내 첫 행에만 비용을 할당한다.
+  CASE
+    WHEN ROW_NUMBER() OVER (
+      PARTITION BY iu.workspace_id, iu.cluster_id, tr.job_id, tr.job_run_id
+      ORDER BY iu.instance_id, tr.task_key
+    ) = 1
+    THEN COALESCE(cjc.total_dbus, 0)
+    ELSE 0
+  END AS total_dbus,
+  CASE
+    WHEN ROW_NUMBER() OVER (
+      PARTITION BY iu.workspace_id, iu.cluster_id, tr.job_id, tr.job_run_id
+      ORDER BY iu.instance_id, tr.task_key
+    ) = 1
+    THEN COALESCE(cjc.total_cost_usd, 0)
+    ELSE 0
+  END AS total_cost_usd
 
 FROM instance_utilization_mv iu
 
