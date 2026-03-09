@@ -393,8 +393,7 @@
           }
         }
       ]
-    }
-    ,
+    },
     {
       "name": "a1b2c3d4",
       "displayName": "5.job_run_cost_summary",
@@ -1788,14 +1787,6 @@
                     {
                       "name": "mem_metric_level",
                       "expression": "`mem_metric_level`"
-                    },
-                    {
-                      "name": "total_cost_usd",
-                      "expression": "`total_cost_usd`"
-                    },
-                    {
-                      "name": "total_dbus",
-                      "expression": "`total_dbus`"
                     }
                   ],
                   "disaggregated": true
@@ -2163,12 +2154,6 @@
                         "tooltipTemplate": "{{ @ }}"
                       }
                     }
-                  },
-                  {
-                    "fieldName": "total_cost_usd"
-                  },
-                  {
-                    "fieldName": "total_dbus"
                   }
                 ]
               }
@@ -3102,8 +3087,7 @@
     {
       "name": "ef31ada9",
       "displayName": "Global Filters",
-      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
-      "layoutVersion": "GRID_V1"
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS"
     }
   ],
   "uiSettings": {
