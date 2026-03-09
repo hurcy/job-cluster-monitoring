@@ -22,7 +22,7 @@
 --     └─ 7. job_config_latest_mv
 --
 --   system.billing.usage + list_prices
---     └─ 8. cluster_job_cost_mv
+--     └─ 8. cluster_job_run_cost_mv
 --
 --   2,3,4,6,7,8  ──►  9. instance_workload_profiles_mv
 --
@@ -227,18 +227,20 @@ WHERE _rn = 1;
 
 
 -- =================================================================
--- 8. cluster_job_cost_mv  [MV]
+-- 8. cluster_job_run_cost_mv  [MV]
 -- =================================================================
--- 클러스터별 × 잡별 비용 (DBU + USD).
+-- 클러스터별 × 잡별 × 잡 실행별 비용 (DBU + USD).
 -- billing.usage와 billing.list_prices를 조인하여 실제 금액을 산출한다.
+-- usage_metadata.job_run_id로 구분하여 잡 실행 단위 비용을 집계한다.
 -- =================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW cluster_job_cost_mv
+CREATE OR REFRESH MATERIALIZED VIEW cluster_job_run_cost_mv
 AS
 SELECT
   u.workspace_id,
   u.usage_metadata.cluster_id                AS cluster_id,
   u.usage_metadata.job_id                    AS job_id,
+  u.usage_metadata.job_run_id                AS job_run_id,
   ROUND(SUM(u.usage_quantity), 4)            AS total_dbus,
   ROUND(SUM(
     u.usage_quantity
@@ -254,7 +256,7 @@ WHERE u.workspace_id = '${workspace_id}'
   AND u.usage_metadata.cluster_id IS NOT NULL
   AND u.usage_date >= '${start_date}'
   AND u.usage_date <  '${end_date}'
-GROUP BY u.workspace_id, u.usage_metadata.cluster_id, u.usage_metadata.job_id;
+GROUP BY u.workspace_id, u.usage_metadata.cluster_id, u.usage_metadata.job_id, u.usage_metadata.job_run_id;
 
 
 -- =================================================================
@@ -337,8 +339,9 @@ LEFT JOIN job_config_latest_mv j
   ON  tr.job_id       = j.job_id
   AND tr.workspace_id = j.workspace_id
 
-LEFT JOIN cluster_job_cost_mv cjc
+LEFT JOIN cluster_job_run_cost_mv cjc
   ON  iu.cluster_id   = cjc.cluster_id
   AND iu.workspace_id = cjc.workspace_id
   AND tr.job_id       <=> cjc.job_id
+  AND tr.job_run_id   <=> cjc.job_run_id
 ;
