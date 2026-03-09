@@ -27,7 +27,13 @@
 --   2,3,4,6,7,8  ──►  9. instance_workload_profiles_mv
 --
 -- Pipeline Configuration Parameters:
---   workspace_id  - 분석 대상 워크스페이스 ID (STRING)
+--   workspace_id      - 분석 대상 워크스페이스 ID (STRING)
+--   system_catalog    - 시스템 테이블 카탈로그 (STRING, default: system)
+--   schema_compute    - compute 스키마 (STRING, default: compute)
+--   schema_lakeflow   - lakeflow 스키마 (STRING, default: lakeflow)
+--   schema_billing    - billing 스키마 (STRING, default: billing)
+--   start_date        - 조회 시작일 (STRING, format: yyyy-MM-dd)
+--   end_date          - 조회 종료일 (STRING, format: yyyy-MM-dd)
 -- =====================================================================
 
 
@@ -45,9 +51,11 @@ SELECT
   node_type,
   DATE_TRUNC('minute', start_time) AS minute_ts,
   COUNT(DISTINCT instance_id)      AS node_count
-FROM system.compute.node_timeline
+FROM ${system_catalog}.${schema_compute}.node_timeline
 WHERE workspace_id = '${workspace_id}'
   AND driver = FALSE
+  AND start_time >= '${start_date}'
+  AND start_time <  '${end_date}'
 GROUP BY cluster_id, node_type, DATE_TRUNC('minute', start_time);
 
 
@@ -112,9 +120,11 @@ SELECT
       THEN 'Under-utilized'
     ELSE 'Balanced - Moderate Utilization'
   END AS workload_profile
-FROM system.compute.node_timeline
+FROM ${system_catalog}.${schema_compute}.node_timeline
 WHERE workspace_id = '${workspace_id}'
   AND driver = FALSE
+  AND start_time >= '${start_date}'
+  AND start_time <  '${end_date}'
 GROUP BY workspace_id, cluster_id, driver, node_type, instance_id;
 
 
@@ -133,7 +143,7 @@ SELECT * FROM (
       PARTITION BY workspace_id, cluster_id
       ORDER BY change_time DESC
     ) AS _rn
-  FROM system.compute.clusters
+  FROM ${system_catalog}.${schema_compute}.clusters
   WHERE workspace_id = '${workspace_id}'
 )
 WHERE _rn = 1;
@@ -161,9 +171,11 @@ SELECT
   tr.period_end_time,
   tr.result_state,
   tr.termination_code
-FROM STREAM(system.lakeflow.job_task_run_timeline) tr
+FROM STREAM(${system_catalog}.${schema_lakeflow}.job_task_run_timeline) tr
 WHERE tr.workspace_id = '${workspace_id}'
-  AND ARRAY_SIZE(tr.compute_ids) > 0;
+  AND ARRAY_SIZE(tr.compute_ids) > 0
+  AND tr.period_start_time >= '${start_date}'
+  AND tr.period_start_time <  '${end_date}';
 
 
 -- =================================================================
@@ -207,7 +219,7 @@ SELECT * FROM (
       PARTITION BY workspace_id, job_id
       ORDER BY change_time DESC
     ) AS _rn
-  FROM system.lakeflow.jobs
+  FROM ${system_catalog}.${schema_lakeflow}.jobs
   WHERE workspace_id = '${workspace_id}'
     AND delete_time IS NULL
 )
@@ -232,14 +244,16 @@ SELECT
     u.usage_quantity
     * COALESCE(lp.pricing.effective_list.default, lp.pricing.default)
   ), 2)                                      AS total_cost_usd
-FROM system.billing.usage u
-LEFT JOIN system.billing.list_prices lp
+FROM ${system_catalog}.${schema_billing}.usage u
+LEFT JOIN ${system_catalog}.${schema_billing}.list_prices lp
   ON  u.sku_name         = lp.sku_name
   AND u.cloud            = lp.cloud
   AND u.usage_start_time >= lp.price_start_time
   AND (lp.price_end_time IS NULL OR u.usage_start_time < lp.price_end_time)
 WHERE u.workspace_id = '${workspace_id}'
   AND u.usage_metadata.cluster_id IS NOT NULL
+  AND u.usage_date >= '${start_date}'
+  AND u.usage_date <  '${end_date}'
 GROUP BY u.workspace_id, u.usage_metadata.cluster_id, u.usage_metadata.job_id;
 
 
