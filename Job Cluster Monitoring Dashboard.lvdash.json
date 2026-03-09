@@ -394,6 +394,82 @@
         }
       ]
     }
+    ,
+    {
+      "name": "a1b2c3d4",
+      "displayName": "5.job_run_cost_summary",
+      "queryLines": [
+        "-- =====================================================================\n",
+        "-- Job Run 별 비용 요약\n",
+        "-- =====================================================================\n",
+        "\n",
+        "SELECT\n",
+        "  tr.job_id,\n",
+        "  tr.job_name,\n",
+        "  tr.run_id,\n",
+        "  tr.job_run_id,\n",
+        "  MIN(tr.period_start_time) AS run_start_time,\n",
+        "  MAX(tr.period_end_time) AS run_end_time,\n",
+        "  DATEDIFF(MINUTE, MIN(tr.period_start_time), MAX(tr.period_end_time)) AS run_duration_minutes,\n",
+        "  COUNT(DISTINCT tr.instance_id) AS instance_count,\n",
+        "  ROUND(AVG(tr.avg_cpu_util), 2) AS avg_cpu_util,\n",
+        "  ROUND(AVG(tr.avg_mem_util), 2) AS avg_mem_util,\n",
+        "  ROUND(SUM(DISTINCT tr.total_dbus), 4) AS total_dbus,\n",
+        "  ROUND(SUM(DISTINCT tr.total_cost_usd), 2) AS total_cost_usd\n",
+        "FROM hurcy.default.instance_workload_profiles_mv AS tr\n",
+        "WHERE tr.period_start_time >= :start_date\n",
+        "  AND tr.period_end_time < :end_date\n",
+        "  AND (\n",
+        "    :policy_id is null\n",
+        "    OR ARRAY_CONTAINS(:policy_id, tr.policy_id)\n",
+        "  )\n",
+        "GROUP BY tr.job_id, tr.job_name, tr.run_id, tr.job_run_id\n",
+        "ORDER BY total_cost_usd DESC\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "policy_id",
+          "keyword": "policy_id",
+          "dataType": "STRING",
+          "complexType": "MULTI",
+          "defaultSelection": {
+            "operator": {
+              "operator": "AND"
+            }
+          }
+        },
+        {
+          "displayName": "start_date",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "now-14d/d"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "end_date",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "now/d"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
   ],
   "pages": [
     {
@@ -2148,6 +2224,325 @@
             "y": 0,
             "width": 4,
             "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "b1c2d3e4",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Job Run Cost"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "c2d3e4f5",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a1b2c3d4",
+                  "fields": [
+                    {
+                      "name": "job_name",
+                      "expression": "`job_name`"
+                    },
+                    {
+                      "name": "sum(total_cost_usd)",
+                      "expression": "SUM(`total_cost_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "job_name",
+                  "displayName": "Job Name",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(total_cost_usd)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Total Cost (USD)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "title": "Top Jobs by Total Cost (USD)",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 15,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "d3e4f5a6",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a1b2c3d4",
+                  "fields": [
+                    {
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
+                    },
+                    {
+                      "name": "sum(total_cost_usd)",
+                      "expression": "SUM(`total_cost_usd`)"
+                    },
+                    {
+                      "name": "job_name",
+                      "expression": "`job_name`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "run_start_time",
+                  "displayName": "Run Start Time",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(total_cost_usd)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    },
+                    "abbreviation": "compact"
+                  },
+                  "displayName": "Cost (USD)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "job_name",
+                  "displayName": "Job Name",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "frame": {
+                "title": "Job Run Cost Over Time",
+                "showTitle": true
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 15,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "e4f5a6b7",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a1b2c3d4",
+                  "fields": [
+                    {
+                      "name": "job_id",
+                      "expression": "`job_id`"
+                    },
+                    {
+                      "name": "job_name",
+                      "expression": "`job_name`"
+                    },
+                    {
+                      "name": "run_id",
+                      "expression": "`run_id`"
+                    },
+                    {
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
+                    },
+                    {
+                      "name": "run_end_time",
+                      "expression": "`run_end_time`"
+                    },
+                    {
+                      "name": "run_duration_minutes",
+                      "expression": "`run_duration_minutes`"
+                    },
+                    {
+                      "name": "instance_count",
+                      "expression": "`instance_count`"
+                    },
+                    {
+                      "name": "avg_cpu_util",
+                      "expression": "`avg_cpu_util`"
+                    },
+                    {
+                      "name": "avg_mem_util",
+                      "expression": "`avg_mem_util`"
+                    },
+                    {
+                      "name": "total_dbus",
+                      "expression": "`total_dbus`"
+                    },
+                    {
+                      "name": "total_cost_usd",
+                      "expression": "`total_cost_usd`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "rowsPerPage": 25,
+              "displayRowNumbers": true,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "job_id",
+                    "displayName": "Job ID"
+                  },
+                  {
+                    "fieldName": "job_name",
+                    "displayName": "Job Name"
+                  },
+                  {
+                    "fieldName": "run_id",
+                    "displayName": "Run ID"
+                  },
+                  {
+                    "fieldName": "run_start_time",
+                    "displayName": "Run Start",
+                    "contentAlignment": "right",
+                    "format": {
+                      "type": "moment.js",
+                      "format": "YYYY-MM-DD HH:mm"
+                    }
+                  },
+                  {
+                    "fieldName": "run_end_time",
+                    "displayName": "Run End",
+                    "contentAlignment": "right",
+                    "format": {
+                      "type": "moment.js",
+                      "format": "YYYY-MM-DD HH:mm"
+                    }
+                  },
+                  {
+                    "fieldName": "run_duration_minutes",
+                    "displayName": "Duration (min)",
+                    "contentAlignment": "right",
+                    "format": {
+                      "type": "numeral.js",
+                      "format": "0"
+                    }
+                  },
+                  {
+                    "fieldName": "instance_count",
+                    "displayName": "Instances",
+                    "contentAlignment": "right",
+                    "format": {
+                      "type": "numeral.js",
+                      "format": "0"
+                    }
+                  },
+                  {
+                    "fieldName": "avg_cpu_util",
+                    "displayName": "Avg CPU %",
+                    "contentAlignment": "right",
+                    "format": {
+                      "type": "numeral.js",
+                      "format": "0.00"
+                    }
+                  },
+                  {
+                    "fieldName": "avg_mem_util",
+                    "displayName": "Avg Mem %",
+                    "contentAlignment": "right",
+                    "format": {
+                      "type": "numeral.js",
+                      "format": "0.00"
+                    }
+                  },
+                  {
+                    "fieldName": "total_dbus",
+                    "displayName": "Total DBUs",
+                    "contentAlignment": "right",
+                    "format": {
+                      "type": "numeral.js",
+                      "format": "0.0000"
+                    }
+                  },
+                  {
+                    "fieldName": "total_cost_usd",
+                    "displayName": "Total Cost (USD)",
+                    "contentAlignment": "right",
+                    "format": {
+                      "type": "numeral.js",
+                      "format": "$0,0.00"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 21,
+            "width": 12,
+            "height": 6
           }
         }
       ],
