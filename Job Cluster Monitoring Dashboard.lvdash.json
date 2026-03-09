@@ -302,7 +302,6 @@
         "  SELECT\n",
         "    workspace_id,\n",
         "    cluster_id,\n",
-        "    is_serverless,\n",
         "    ROUND(SUM(total_dbus), 4)      AS total_dbus,\n",
         "    ROUND(SUM(total_cost_usd), 2)  AS total_cost_usd\n",
         "  FROM hurcy.default.job_run_cost_profiles_mv\n",
@@ -1708,7 +1707,7 @@
           "position": {
             "x": 0,
             "y": 2,
-            "width": 6,
+            "width": 12,
             "height": 6
           }
         },
@@ -1780,9 +1779,9 @@
             }
           },
           "position": {
-            "x": 6,
-            "y": 2,
-            "width": 6,
+            "x": 0,
+            "y": 8,
+            "width": 12,
             "height": 6
           }
         },
@@ -1970,9 +1969,93 @@
           },
           "position": {
             "x": 0,
-            "y": 8,
+            "y": 22,
             "width": 12,
             "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "sv_header_01",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Serverless vs Classic"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 12,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "sv_pie_01",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "a1b2c3d4",
+                  "fields": [
+                    {
+                      "name": "is_serverless",
+                      "expression": "`is_serverless`"
+                    },
+                    {
+                      "name": "sum(total_cost_usd)",
+                      "expression": "SUM(`total_cost_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Cost by Compute Type (Serverless vs Classic)",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "is_serverless",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(total_cost_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 15,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "sv_detail_hdr",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Detail"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 21,
+            "width": 12,
+            "height": 1
           }
         }
       ],
