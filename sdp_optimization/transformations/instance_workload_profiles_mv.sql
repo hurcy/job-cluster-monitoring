@@ -23,7 +23,7 @@
 --     └─ 7. job_config_latest_mv
 --
 --   system.billing.usage + list_prices
---     └─ 8. cluster_job_run_cost_mv
+--     └─ 8. cluster_job_run_cost_mv  (is_serverless 구분, cluster_id NULL 허용)
 --
 --   2,3,4,6b,7 ──►  9. instance_workload_profiles_mv
 --
@@ -253,9 +253,11 @@ WHERE _rn = 1;
 -- =================================================================
 -- 8. cluster_job_run_cost_mv  [MV]
 -- =================================================================
--- 클러스터별 × 잡별 × 잡 실행별 비용 (DBU + USD).
+-- 잡 실행 단위 비용 (DBU + USD).
 -- billing.usage와 billing.list_prices를 조인하여 실제 금액을 산출한다.
--- usage_metadata.job_run_id로 구분하여 잡 실행 단위 비용을 집계한다.
+-- usage_metadata.job_id 기준으로 필터링하여 잡 관련 사용량만 집계.
+-- is_serverless 컬럼으로 serverless/classic 비용을 구분한다.
+-- cluster_id는 serverless의 경우 NULL일 수 있다.
 -- =================================================================
 
 CREATE OR REFRESH MATERIALIZED VIEW cluster_job_run_cost_mv
@@ -265,6 +267,7 @@ SELECT
   u.usage_metadata.cluster_id                AS cluster_id,
   u.usage_metadata.job_id                    AS job_id,
   u.usage_metadata.job_run_id                AS job_run_id,
+  u.product_features.is_serverless           AS is_serverless,
   ROUND(SUM(u.usage_quantity), 4)            AS total_dbus,
   ROUND(SUM(
     u.usage_quantity
@@ -277,10 +280,10 @@ LEFT JOIN ${system_catalog}.${schema_billing}.list_prices lp
   AND u.usage_start_time >= lp.price_start_time
   AND (lp.price_end_time IS NULL OR u.usage_start_time < lp.price_end_time)
 WHERE u.workspace_id = '${workspace_id}'
-  AND u.usage_metadata.cluster_id IS NOT NULL
+  AND u.usage_metadata.job_id IS NOT NULL
   AND u.usage_date >= '${start_date}'
   AND u.usage_date <  '${end_date}'
-GROUP BY u.workspace_id, u.usage_metadata.cluster_id, u.usage_metadata.job_id, u.usage_metadata.job_run_id;
+GROUP BY u.workspace_id, u.usage_metadata.cluster_id, u.usage_metadata.job_id, u.usage_metadata.job_run_id, u.product_features.is_serverless;
 
 
 -- =================================================================
@@ -363,10 +366,11 @@ LEFT JOIN job_config_latest_mv j
 -- 10. job_run_cost_profiles_mv  [MV]
 -- =================================================================
 -- Job Run 단위 비용 프로파일.
--- cluster_job_run_cost_mv(8)를 기준으로 클러스터 구성, 잡 메타,
--- 태스크 실행 집계, 인스턴스 활용률을 조인하여
--- (cluster_id, job_id, job_run_id) 수준의 비용+성능 뷰를 제공한다.
--- 비용이 fan-out 없이 정확하게 유지된다.
+-- cluster_job_run_cost_mv(8)를 driving table로 하여 클러스터 구성,
+-- 잡 메타, 태스크 실행 집계, 인스턴스 활용률을 LEFT JOIN한다.
+-- Serverless 워크로드는 cluster_id가 NULL이므로 compute 계열
+-- 테이블과 매칭되지 않지만, 비용은 누락 없이 유지된다.
+-- is_serverless 컬럼으로 serverless/classic을 구분한다.
 -- =================================================================
 
 CREATE OR REFRESH MATERIALIZED VIEW job_run_cost_profiles_mv
@@ -374,6 +378,7 @@ AS
 SELECT
   cjc.workspace_id,
   cjc.cluster_id,
+  cjc.is_serverless,
   cc.cluster_name,
   cc.cluster_source,
   cc.owned_by,
@@ -396,7 +401,7 @@ SELECT
   DATEDIFF(MINUTE, tr.period_start_time, tr.period_end_time)             AS run_duration_minutes,
   tr.task_count,
 
-  -- instance_utilization_mv를 cluster 수준으로 집계
+  -- instance_utilization_mv를 cluster 수준으로 집계 (classic만 매칭, serverless는 NULL)
   COUNT(DISTINCT iu.instance_id)             AS instance_count,
   ROUND(AVG(iu.avg_cpu_util), 2)             AS avg_cpu_util,
   ROUND(MAX(iu.max_cpu_util), 2)             AS max_cpu_util,
@@ -431,7 +436,7 @@ LEFT JOIN instance_utilization_mv iu
   AND cjc.workspace_id = iu.workspace_id
 
 GROUP BY
-  cjc.workspace_id, cjc.cluster_id,
+  cjc.workspace_id, cjc.cluster_id, cjc.is_serverless,
   cc.cluster_name, cc.cluster_source, cc.owned_by, cc.worker_node_type,
   cc.worker_count, cc.min_autoscale_workers, cc.max_autoscale_workers,
   cc.dbr_version, cc.policy_id,

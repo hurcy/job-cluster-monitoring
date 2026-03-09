@@ -8,7 +8,7 @@
         "union all\n",
         "select distinct policy_id\n",
         "from\n",
-        "  hurcy.default.instance_workload_profiles_tb as tr\n",
+        "  hurcy.default.instance_workload_profiles_mv as tr\n",
         "  where policy_id is not null"
       ]
     },
@@ -302,6 +302,7 @@
         "  SELECT\n",
         "    workspace_id,\n",
         "    cluster_id,\n",
+        "    is_serverless,\n",
         "    ROUND(SUM(total_dbus), 4)      AS total_dbus,\n",
         "    ROUND(SUM(total_cost_usd), 2)  AS total_cost_usd\n",
         "  FROM hurcy.default.job_run_cost_profiles_mv\n",
@@ -419,6 +420,7 @@
         "\n",
         "SELECT\n",
         "  workspace_id,\n",
+        "  is_serverless,\n",
         "  cluster_id,\n",
         "  cluster_name,\n",
         "  cluster_source,\n",
@@ -2428,6 +2430,10 @@
                       "expression": "`cluster_name`"
                     },
                     {
+                      "name": "is_serverless",
+                      "expression": "`is_serverless`"
+                    },
+                    {
                       "name": "run_start_time",
                       "expression": "`run_start_time`"
                     },
@@ -2490,6 +2496,10 @@
                   {
                     "fieldName": "cluster_name",
                     "displayName": "Cluster"
+                  },
+                  {
+                    "fieldName": "is_serverless",
+                    "displayName": "Serverless"
                   },
                   {
                     "fieldName": "run_start_time",
