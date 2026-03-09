@@ -34,7 +34,7 @@
         "-- =====================================================================\n",
         "-- 대시보드 1: 클러스터 워크로드 프로파일 개요\n",
         "-- =====================================================================\n",
-        "-- 클러스터 단위 집계: 워크로드 프로파일별 활용률, 실행시간, 비용.\n",
+        "-- 클러스터 단위 집계: 워크로드 프로파일별 활용률, 실행시간.\n",
         "-- 대시보드 \"Cluster profiles\" 페이지용 데이터셋.\n",
         "-- =====================================================================\n",
         "\n",
@@ -67,10 +67,7 @@
         "  ROUND(AVG(c.avg_mem_util), 2)                        AS avg_mem_util_per_cluster,\n",
         "  ROUND(MAX(c.max_mem_util), 2)                        AS max_mem_util_per_cluster,\n",
         "  ROUND(AVG(c.avg_net_mb_rec_minute), 2)               AS avg_net_mb_rec_minute_per_cluster,\n",
-        "  ROUND(AVG(c.avg_net_mb_sent_minute), 2)              AS avg_net_mb_sent_minute_per_cluster,\n",
-        "\n",
-        "  ROUND(SUM(DISTINCT c.total_dbus), 4)                 AS total_dbus,\n",
-        "  ROUND(SUM(DISTINCT c.total_cost_usd), 2)             AS total_cost_usd\n",
+        "  ROUND(AVG(c.avg_net_mb_sent_minute), 2)              AS avg_net_mb_sent_minute_per_cluster\n",
         "FROM hurcy.default.instance_workload_profiles_mv AS c\n",
         "WHERE \n",
         "   c.instance_start_time >= :start_date\n",
@@ -94,7 +91,6 @@
         "  c.dbr_version\n",
         "ORDER BY\n",
         "  workload_profile DESC,\n",
-        "  total_cost_usd DESC,\n",
         "  cluster_execution_minutes DESC;\n"
       ],
       "parameters": [
@@ -148,19 +144,17 @@
         "-- =====================================================================\n",
         "-- 대시보드 2: 잡 클러스터 워크로드 프로파일 상세\n",
         "-- =====================================================================\n",
-        "-- 잡 실행 단위로 인스턴스별 활용률, 비용, 메트릭 임계치를 보여준다.\n",
+        "-- 잡 실행 단위로 인스턴스별 활용률, 메트릭 임계치를 보여준다.\n",
         "-- 대시보드 \"Instance profile\" 페이지용 데이터셋.\n",
         "-- =====================================================================\n",
         "\n",
         "SELECT\n",
         "  tr.job_id,\n",
         "  tr.job_name,\n",
-        "  tr.run_id,\n",
         "  tr.job_run_id,\n",
-        "  tr.task_key,\n",
         "  tr.period_start_time,\n",
         "  tr.period_end_time,\n",
-        "  DATEDIFF(MINUTE, tr.period_start_time, tr.period_end_time) AS task_run_duration_minutes,\n",
+        "  tr.job_run_duration_minutes,\n",
         "  tr.workload_profile,\n",
         "  tr.policy_id,\n",
         "  tr.cluster_id,\n",
@@ -185,9 +179,6 @@
         "  tr.avg_net_mb_rec_minute,\n",
         "  tr.avg_net_mb_sent_minute,\n",
         "\n",
-        "  tr.total_dbus,\n",
-        "  tr.total_cost_usd,\n",
-        "\n",
         "  CASE\n",
         "    WHEN tr.avg_cpu_util < 30  THEN 'cpu_low_threshold (<30%)'\n",
         "    WHEN tr.avg_cpu_util <= 60 THEN 'cpu_mid_threshold (<=60%)'\n",
@@ -206,9 +197,8 @@
         "    OR ARRAY_CONTAINS(:policy_id, tr.policy_id)\n",
         "  )\n",
         "ORDER BY\n",
-        "  total_cost_usd DESC,\n",
         "  workload_profile DESC,\n",
-        "  task_run_duration_minutes DESC;"
+        "  job_run_duration_minutes DESC;"
       ],
       "parameters": [
         {
@@ -263,10 +253,10 @@
         "-- 대시보드 3: 라이트사이징 권고\n",
         "-- =====================================================================\n",
         "-- 클러스터별 활용률을 집계하고, 자동화된 사이징 분류와 예상 절감액을\n",
-        "-- 제시한다.\n",
+        "-- 제시한다. 비용은 job_run_cost_profiles_mv에서 조인한다.\n",
         "-- =====================================================================\n",
         "\n",
-        "WITH cluster_summary AS (\n",
+        "WITH cluster_util AS (\n",
         "  SELECT\n",
         "    workspace_id,\n",
         "    cluster_id,\n",
@@ -294,10 +284,7 @@
         "    ROUND(AVG(avg_node_count), 2)                      AS avg_node_count,\n",
         "    ROUND(MAX(max_node_count), 2)                      AS max_node_count,\n",
         "    COUNT(DISTINCT instance_id)                        AS total_instances,\n",
-        "    COUNT(DISTINCT job_id)                             AS distinct_job_count,\n",
-        "\n",
-        "    ROUND(SUM(DISTINCT total_dbus), 4)                 AS total_dbus,\n",
-        "    ROUND(SUM(DISTINCT total_cost_usd), 2)             AS total_cost_usd\n",
+        "    COUNT(DISTINCT job_id)                             AS distinct_job_count\n",
         "  FROM hurcy.default.instance_workload_profiles_mv\n",
         "  WHERE instance_start_time >= :start_date\n",
         "    AND instance_end_time   <  :end_date\n",
@@ -310,6 +297,31 @@
         "    owned_by, worker_node_type, configured_workers,\n",
         "    min_autoscale_workers, max_autoscale_workers,\n",
         "    dbr_version, policy_id, workload_profile\n",
+        "),\n",
+        "cluster_cost AS (\n",
+        "  SELECT\n",
+        "    workspace_id,\n",
+        "    cluster_id,\n",
+        "    ROUND(SUM(total_dbus), 4)      AS total_dbus,\n",
+        "    ROUND(SUM(total_cost_usd), 2)  AS total_cost_usd\n",
+        "  FROM hurcy.default.job_run_cost_profiles_mv\n",
+        "  WHERE run_start_time >= :start_date\n",
+        "    AND run_end_time   <  :end_date\n",
+        "    AND (\n",
+        "      :policy_id is null\n",
+        "      OR ARRAY_CONTAINS(:policy_id, policy_id)\n",
+        "    )\n",
+        "  GROUP BY workspace_id, cluster_id\n",
+        "),\n",
+        "cluster_summary AS (\n",
+        "  SELECT\n",
+        "    cu.*,\n",
+        "    COALESCE(cc.total_dbus, 0)     AS total_dbus,\n",
+        "    COALESCE(cc.total_cost_usd, 0) AS total_cost_usd\n",
+        "  FROM cluster_util cu\n",
+        "  LEFT JOIN cluster_cost cc\n",
+        "    ON cu.workspace_id = cc.workspace_id\n",
+        "    AND cu.cluster_id  = cc.cluster_id\n",
         ")\n",
         "\n",
         "SELECT\n",
@@ -399,30 +411,50 @@
       "displayName": "5.job_run_cost_summary",
       "queryLines": [
         "-- =====================================================================\n",
-        "-- Job Run 별 비용 요약\n",
+        "-- Job Run 별 비용 프로파일\n",
+        "-- =====================================================================\n",
+        "-- job_run_cost_profiles_mv에서 직접 조회.\n",
+        "-- (cluster_id, job_id, job_run_id) 수준으로 비용이 정확하게 집계되어 있다.\n",
         "-- =====================================================================\n",
         "\n",
         "SELECT\n",
-        "  tr.job_id,\n",
-        "  tr.job_name,\n",
-        "  tr.run_id,\n",
-        "  tr.job_run_id,\n",
-        "  MIN(tr.period_start_time) AS run_start_time,\n",
-        "  MAX(tr.period_end_time) AS run_end_time,\n",
-        "  DATEDIFF(MINUTE, MIN(tr.period_start_time), MAX(tr.period_end_time)) AS run_duration_minutes,\n",
-        "  COUNT(DISTINCT tr.instance_id) AS instance_count,\n",
-        "  ROUND(AVG(tr.avg_cpu_util), 2) AS avg_cpu_util,\n",
-        "  ROUND(AVG(tr.avg_mem_util), 2) AS avg_mem_util,\n",
-        "  ROUND(SUM(DISTINCT tr.total_dbus), 4) AS total_dbus,\n",
-        "  ROUND(SUM(DISTINCT tr.total_cost_usd), 2) AS total_cost_usd\n",
-        "FROM hurcy.default.instance_workload_profiles_mv AS tr\n",
-        "WHERE tr.period_start_time >= :start_date\n",
-        "  AND tr.period_end_time < :end_date\n",
+        "  workspace_id,\n",
+        "  cluster_id,\n",
+        "  cluster_name,\n",
+        "  cluster_source,\n",
+        "  owned_by,\n",
+        "  worker_node_type,\n",
+        "  configured_workers,\n",
+        "  min_autoscale_workers,\n",
+        "  max_autoscale_workers,\n",
+        "  dbr_version,\n",
+        "  policy_id,\n",
+        "  job_id,\n",
+        "  job_name,\n",
+        "  run_as,\n",
+        "  creator_id,\n",
+        "  job_run_id,\n",
+        "  run_start_time,\n",
+        "  run_end_time,\n",
+        "  run_duration_minutes,\n",
+        "  task_count,\n",
+        "  instance_count,\n",
+        "  avg_cpu_util,\n",
+        "  max_cpu_util,\n",
+        "  avg_cpu_wait,\n",
+        "  avg_mem_util,\n",
+        "  max_mem_util,\n",
+        "  avg_net_mb_rec_minute,\n",
+        "  avg_net_mb_sent_minute,\n",
+        "  total_dbus,\n",
+        "  total_cost_usd\n",
+        "FROM hurcy.default.job_run_cost_profiles_mv\n",
+        "WHERE run_start_time >= :start_date\n",
+        "  AND run_end_time   <  :end_date\n",
         "  AND (\n",
         "    :policy_id is null\n",
-        "    OR ARRAY_CONTAINS(:policy_id, tr.policy_id)\n",
+        "    OR ARRAY_CONTAINS(:policy_id, policy_id)\n",
         "  )\n",
-        "GROUP BY tr.job_id, tr.job_name, tr.run_id, tr.job_run_id\n",
         "ORDER BY total_cost_usd DESC\n"
       ],
       "parameters": [
@@ -1689,8 +1721,8 @@
                       "expression": "`job_id`"
                     },
                     {
-                      "name": "run_id",
-                      "expression": "`run_id`"
+                      "name": "job_run_id",
+                      "expression": "`job_run_id`"
                     },
                     {
                       "name": "period_start_time",
@@ -1701,8 +1733,8 @@
                       "expression": "`period_end_time`"
                     },
                     {
-                      "name": "task_run_duration_minutes",
-                      "expression": "`task_run_duration_minutes`"
+                      "name": "job_run_duration_minutes",
+                      "expression": "`job_run_duration_minutes`"
                     },
                     {
                       "name": "workload_profile",
@@ -1812,9 +1844,9 @@
                     }
                   },
                   {
-                    "fieldName": "run_id",
+                    "fieldName": "job_run_id",
                     "useForSearch": false,
-                    "displayName": "run_id",
+                    "displayName": "job_run_id",
                     "actions": {
                       "hover": {
                         "type": "tooltip",
@@ -1855,13 +1887,13 @@
                     }
                   },
                   {
-                    "fieldName": "task_run_duration_minutes",
+                    "fieldName": "job_run_duration_minutes",
                     "useForSearch": false,
                     "format": {
                       "type": "numeral.js",
                       "format": "0"
                     },
-                    "displayName": "task_run_duration_minutes",
+                    "displayName": "job_run_duration_minutes",
                     "actions": {
                       "hover": {
                         "type": "tooltip",
@@ -2388,8 +2420,12 @@
                       "expression": "`job_name`"
                     },
                     {
-                      "name": "run_id",
-                      "expression": "`run_id`"
+                      "name": "job_run_id",
+                      "expression": "`job_run_id`"
+                    },
+                    {
+                      "name": "cluster_name",
+                      "expression": "`cluster_name`"
                     },
                     {
                       "name": "run_start_time",
@@ -2402,6 +2438,10 @@
                     {
                       "name": "run_duration_minutes",
                       "expression": "`run_duration_minutes`"
+                    },
+                    {
+                      "name": "task_count",
+                      "expression": "`task_count`"
                     },
                     {
                       "name": "instance_count",
@@ -2444,8 +2484,12 @@
                     "displayName": "Job Name"
                   },
                   {
-                    "fieldName": "run_id",
-                    "displayName": "Run ID"
+                    "fieldName": "job_run_id",
+                    "displayName": "Job Run ID"
+                  },
+                  {
+                    "fieldName": "cluster_name",
+                    "displayName": "Cluster"
                   },
                   {
                     "fieldName": "run_start_time",
@@ -2468,6 +2512,15 @@
                   {
                     "fieldName": "run_duration_minutes",
                     "displayName": "Duration (min)",
+                    "contentAlignment": "right",
+                    "format": {
+                      "type": "numeral.js",
+                      "format": "0"
+                    }
+                  },
+                  {
+                    "fieldName": "task_count",
+                    "displayName": "Tasks",
                     "contentAlignment": "right",
                     "format": {
                       "type": "numeral.js",

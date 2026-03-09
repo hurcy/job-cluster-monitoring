@@ -16,7 +16,8 @@
 --
 --   system.lakeflow.job_task_run_timeline
 --     └─ 5. exploded_task_runs_st  (Streaming Table)
---          └─ 6. task_run_stats_mv
+--          ├─ 6. task_run_stats_mv       (job_run 단위 집계)
+--          └─ 6b. job_run_cluster_map_mv (cluster-job_run 매핑)
 --
 --   system.lakeflow.jobs
 --     └─ 7. job_config_latest_mv
@@ -24,7 +25,9 @@
 --   system.billing.usage + list_prices
 --     └─ 8. cluster_job_run_cost_mv
 --
---   2,3,4,6,7,8  ──►  9. instance_workload_profiles_mv
+--   2,3,4,6b,7 ──►  9. instance_workload_profiles_mv
+--
+--   8,4,7,6,3  ──►  10. job_run_cost_profiles_mv
 --
 -- Pipeline Configuration Parameters:
 --   workspace_id      - 분석 대상 워크스페이스 ID (STRING)
@@ -181,8 +184,9 @@ WHERE tr.workspace_id = '${workspace_id}'
 -- =================================================================
 -- 6. task_run_stats_mv  [MV]
 -- =================================================================
--- 잡 실행 단위 집계 (클러스터별 × 잡 실행별).
--- 성공한 태스크 실행만 필터링하고, 실행 시간 범위를 집계한다.
+-- Job Run 단위 집계 (클러스터별 × 잡 실행별).
+-- run_id, task_key를 제외하여 job_run 수준으로 집계한다.
+-- 성공한 태스크가 하나라도 있는 잡 실행만 필터링한다.
 -- =================================================================
 
 CREATE OR REFRESH MATERIALIZED VIEW task_run_stats_mv
@@ -191,17 +195,37 @@ SELECT
   workspace_id,
   cluster_id,
   job_id,
-  run_id,
   job_run_id,
-  task_key,
+  COUNT(DISTINCT task_key)          AS task_count,
   MIN(period_start_time)            AS period_start_time,
   MAX(period_end_time)              AS period_end_time,
   COLLECT_SET(result_state)         AS result_states,
   COLLECT_SET(termination_code)     AS termination_codes
 FROM exploded_task_runs_st
-GROUP BY workspace_id, job_id, run_id, job_run_id, task_key, cluster_id
+GROUP BY workspace_id, cluster_id, job_id, job_run_id
 HAVING ARRAY_CONTAINS(COLLECT_SET(result_state), 'SUCCESS')
     OR ARRAY_CONTAINS(COLLECT_SET(termination_code), 'SUCCESS');
+
+
+-- =================================================================
+-- 6b. job_run_cluster_map_mv  [MV]
+-- =================================================================
+-- Job의 Task가 실행된 cluster_id 매핑 (시간 범위 포함).
+-- instance_workload_profiles_mv에서 인스턴스와 잡 실행의
+-- 시간 중첩(time overlap) 조인에 사용한다.
+-- =================================================================
+
+CREATE OR REFRESH MATERIALIZED VIEW job_run_cluster_map_mv
+AS
+SELECT
+  workspace_id,
+  cluster_id,
+  job_id,
+  job_run_id,
+  MIN(period_start_time)            AS period_start_time,
+  MAX(period_end_time)              AS period_end_time
+FROM exploded_task_runs_st
+GROUP BY workspace_id, cluster_id, job_id, job_run_id;
 
 
 -- =================================================================
@@ -262,8 +286,9 @@ GROUP BY u.workspace_id, u.usage_metadata.cluster_id, u.usage_metadata.job_id, u
 -- =================================================================
 -- 9. instance_workload_profiles_mv  [MV]
 -- =================================================================
--- 최종 결합: 인스턴스 활용률 + 클러스터 구성 + 잡 실행 + 비용.
--- 위 8개 파이프라인 오브젝트를 조인하여 분석용 최종 뷰를 생성한다.
+-- 인스턴스 수준 프로파일링: 활용률 + 클러스터 구성 + 잡 실행.
+-- job_run_cluster_map_mv(6b)를 통해 인스턴스-잡 실행 시간 중첩을 조인.
+-- 비용 정보는 별도 MV(10. job_run_cost_profiles_mv)에서 제공한다.
 -- =================================================================
 
 CREATE OR REFRESH MATERIALIZED VIEW instance_workload_profiles_mv
@@ -303,40 +328,14 @@ SELECT
   iu.avg_net_mb_sent_minute,
   iu.workload_profile,
 
-  tr.job_id,
+  jrc.job_id,
   j.name                   AS job_name,
   j.run_as,
   j.creator_id,
-  tr.run_id,
-  tr.job_run_id,
-  tr.task_key,
-  tr.period_start_time,
-  tr.period_end_time,
-  DATEDIFF(MINUTE, tr.period_start_time, tr.period_end_time) AS task_run_duration_minutes,
-  tr.result_states,
-  tr.termination_codes,
-
-  COALESCE(cjc.total_dbus, 0)     AS total_dbus_raw,
-  COALESCE(cjc.total_cost_usd, 0) AS total_cost_usd_raw,
-
-  -- 비용 중복 제거: (cluster, job_run) 단위 비용이 instance × task fan-out으로
-  -- 부풀려지는 것을 방지. 동일 (cluster, job_run) 그룹 내 첫 행에만 비용을 할당한다.
-  CASE
-    WHEN ROW_NUMBER() OVER (
-      PARTITION BY iu.workspace_id, iu.cluster_id, tr.job_id, tr.job_run_id
-      ORDER BY iu.instance_id, tr.task_key
-    ) = 1
-    THEN COALESCE(cjc.total_dbus, 0)
-    ELSE 0
-  END AS total_dbus,
-  CASE
-    WHEN ROW_NUMBER() OVER (
-      PARTITION BY iu.workspace_id, iu.cluster_id, tr.job_id, tr.job_run_id
-      ORDER BY iu.instance_id, tr.task_key
-    ) = 1
-    THEN COALESCE(cjc.total_cost_usd, 0)
-    ELSE 0
-  END AS total_cost_usd
+  jrc.job_run_id,
+  jrc.period_start_time,
+  jrc.period_end_time,
+  DATEDIFF(MINUTE, jrc.period_start_time, jrc.period_end_time) AS job_run_duration_minutes
 
 FROM instance_utilization_mv iu
 
@@ -348,19 +347,96 @@ LEFT JOIN cluster_config_latest_mv cc
   ON  iu.cluster_id   = cc.cluster_id
   AND iu.workspace_id = cc.workspace_id
 
-LEFT JOIN task_run_stats_mv tr
-  ON  iu.cluster_id          = tr.cluster_id
-  AND iu.workspace_id        = tr.workspace_id
-  AND iu.instance_start_time <  tr.period_end_time
-  AND tr.period_start_time   <  iu.instance_end_time
+LEFT JOIN job_run_cluster_map_mv jrc
+  ON  iu.cluster_id          = jrc.cluster_id
+  AND iu.workspace_id        = jrc.workspace_id
+  AND iu.instance_start_time <  jrc.period_end_time
+  AND jrc.period_start_time  <  iu.instance_end_time
 
 LEFT JOIN job_config_latest_mv j
-  ON  tr.job_id       = j.job_id
-  AND tr.workspace_id = j.workspace_id
+  ON  jrc.job_id       = j.job_id
+  AND jrc.workspace_id = j.workspace_id
+;
 
-LEFT JOIN cluster_job_run_cost_mv cjc
-  ON  iu.cluster_id   = cjc.cluster_id
-  AND iu.workspace_id = cjc.workspace_id
-  AND tr.job_id       <=> cjc.job_id
-  AND tr.job_run_id   <=> cjc.job_run_id
+
+-- =================================================================
+-- 10. job_run_cost_profiles_mv  [MV]
+-- =================================================================
+-- Job Run 단위 비용 프로파일.
+-- cluster_job_run_cost_mv(8)를 기준으로 클러스터 구성, 잡 메타,
+-- 태스크 실행 집계, 인스턴스 활용률을 조인하여
+-- (cluster_id, job_id, job_run_id) 수준의 비용+성능 뷰를 제공한다.
+-- 비용이 fan-out 없이 정확하게 유지된다.
+-- =================================================================
+
+CREATE OR REFRESH MATERIALIZED VIEW job_run_cost_profiles_mv
+AS
+SELECT
+  cjc.workspace_id,
+  cjc.cluster_id,
+  cc.cluster_name,
+  cc.cluster_source,
+  cc.owned_by,
+  cc.worker_node_type,
+  cc.worker_count          AS configured_workers,
+  cc.min_autoscale_workers,
+  cc.max_autoscale_workers,
+  cc.dbr_version,
+  cc.policy_id,
+
+  cjc.job_id,
+  j.name                   AS job_name,
+  j.run_as,
+  j.creator_id,
+  cjc.job_run_id,
+
+  -- task_run_stats_mv (이미 job_run 수준으로 집계됨)
+  tr.period_start_time                                                   AS run_start_time,
+  tr.period_end_time                                                     AS run_end_time,
+  DATEDIFF(MINUTE, tr.period_start_time, tr.period_end_time)             AS run_duration_minutes,
+  tr.task_count,
+
+  -- instance_utilization_mv를 cluster 수준으로 집계
+  COUNT(DISTINCT iu.instance_id)             AS instance_count,
+  ROUND(AVG(iu.avg_cpu_util), 2)             AS avg_cpu_util,
+  ROUND(MAX(iu.max_cpu_util), 2)             AS max_cpu_util,
+  ROUND(AVG(iu.avg_cpu_wait), 2)             AS avg_cpu_wait,
+  ROUND(AVG(iu.avg_mem_util), 2)             AS avg_mem_util,
+  ROUND(MAX(iu.max_mem_util), 2)             AS max_mem_util,
+  ROUND(AVG(iu.avg_net_mb_rec_minute), 2)    AS avg_net_mb_rec_minute,
+  ROUND(AVG(iu.avg_net_mb_sent_minute), 2)   AS avg_net_mb_sent_minute,
+
+  -- 비용 (fan-out 없이 정확한 값)
+  cjc.total_dbus,
+  cjc.total_cost_usd
+
+FROM cluster_job_run_cost_mv cjc
+
+LEFT JOIN cluster_config_latest_mv cc
+  ON  cjc.cluster_id   = cc.cluster_id
+  AND cjc.workspace_id = cc.workspace_id
+
+LEFT JOIN job_config_latest_mv j
+  ON  cjc.job_id       = j.job_id
+  AND cjc.workspace_id = j.workspace_id
+
+LEFT JOIN task_run_stats_mv tr
+  ON  cjc.cluster_id   = tr.cluster_id
+  AND cjc.workspace_id = tr.workspace_id
+  AND cjc.job_id       = tr.job_id
+  AND cjc.job_run_id   = tr.job_run_id
+
+LEFT JOIN instance_utilization_mv iu
+  ON  cjc.cluster_id   = iu.cluster_id
+  AND cjc.workspace_id = iu.workspace_id
+
+GROUP BY
+  cjc.workspace_id, cjc.cluster_id,
+  cc.cluster_name, cc.cluster_source, cc.owned_by, cc.worker_node_type,
+  cc.worker_count, cc.min_autoscale_workers, cc.max_autoscale_workers,
+  cc.dbr_version, cc.policy_id,
+  cjc.job_id, j.name, j.run_as, j.creator_id,
+  cjc.job_run_id,
+  tr.period_start_time, tr.period_end_time, tr.task_count,
+  cjc.total_dbus, cjc.total_cost_usd
 ;
