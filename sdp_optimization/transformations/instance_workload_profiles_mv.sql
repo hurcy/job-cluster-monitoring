@@ -3,35 +3,37 @@
 -- =====================================================================
 -- 각 CTE를 독립된 MV / Streaming Table로 분리하여
 -- 파이프라인 UI에서 단계별 데이터를 조회·디버깅할 수 있도록 구성한다.
+-- NOTE: system_catalog 파라미터로 시스템 테이블 사본(MV)이 있는
+--       카탈로그를 지정할 수 있다 (기본값: hurcy).
 --
 -- Pipeline DAG:
 --
---   system.compute.node_timeline
+--   ${system_catalog}.${schema_compute}.node_timeline
 --     ├─ 1. node_count_per_minute_mv
 --     │    └─ 2. node_count_stats_mv
 --     └─ 3. instance_utilization_mv
 --
---   system.compute.clusters
+--   ${system_catalog}.${schema_compute}.clusters
 --     └─ 4. cluster_config_latest_mv
 --
---   system.lakeflow.job_task_run_timeline
+--   ${system_catalog}.${schema_lakeflow}.job_task_run_timeline
 --     └─ 5. exploded_task_runs_st  (Streaming Table)
---          ├─ 6. task_run_stats_mv       (job_run 단위 집계)
---          └─ 6b. job_run_cluster_map_mv (cluster-job_run 매핑)
+--          ├─ 6. task_run_stats_mv
+--          └─ 6b. job_run_cluster_map_mv
 --
---   system.lakeflow.jobs
+--   ${system_catalog}.${schema_lakeflow}.jobs
 --     └─ 7. job_config_latest_mv
 --
---   system.billing.usage + list_prices
---     └─ 8. cluster_job_run_cost_mv  (is_serverless 구분, cluster_id NULL 허용)
+--   ${system_catalog}.${schema_billing}.usage + list_prices
+--     └─ 8. cluster_job_run_cost_mv
 --
 --   2,3,4,6b,7 ──►  9. instance_workload_profiles_mv
 --
---   8,4,7,6,3  ──►  10. job_run_cost_profiles_mv
+--   8,4,7,6,3  ──► 10. job_run_cost_profiles_mv
 --
 -- Pipeline Configuration Parameters:
 --   workspace_id      - 분석 대상 워크스페이스 ID (STRING)
---   system_catalog    - 시스템 테이블 카탈로그 (STRING, default: system)
+--   system_catalog    - 시스템 테이블 카탈로그 (STRING, default: hurcy)
 --   schema_compute    - compute 스키마 (STRING, default: compute)
 --   schema_lakeflow   - lakeflow 스키마 (STRING, default: lakeflow)
 --   schema_billing    - billing 스키마 (STRING, default: billing)
@@ -153,15 +155,14 @@ WHERE _rn = 1;
 
 
 -- =================================================================
--- 5. exploded_task_runs_st  [Streaming Table]
+-- 5. exploded_task_runs_st  [MV]
 -- =================================================================
 -- 태스크 실행 → 클러스터 매핑.
--- job_task_run_timeline은 append-only이므로 Streaming Table로
--- 증분 처리한다. compute_ids 배열을 EXPLODE하여 태스크-클러스터
--- 관계를 1:N으로 풀어낸다.
+-- compute_ids 배열을 EXPLODE하여 태스크-클러스터 관계를 1:N으로
+-- 풀어낸다. MV 사본은 STREAM()을 지원하지 않으므로 MV로 대체한다.
 -- =================================================================
 
-CREATE OR REFRESH STREAMING TABLE exploded_task_runs_st
+CREATE OR REFRESH MATERIALIZED VIEW exploded_task_runs_st
 AS
 SELECT
   tr.workspace_id,
@@ -174,7 +175,7 @@ SELECT
   tr.period_end_time,
   tr.result_state,
   tr.termination_code
-FROM STREAM(${system_catalog}.${schema_lakeflow}.job_task_run_timeline) tr
+FROM ${system_catalog}.${schema_lakeflow}.job_task_run_timeline tr
 WHERE tr.workspace_id = '${workspace_id}'
   AND ARRAY_SIZE(tr.compute_ids) > 0
   AND tr.period_start_time >= '${start_date}'
