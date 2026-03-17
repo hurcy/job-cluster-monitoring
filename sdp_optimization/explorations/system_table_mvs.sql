@@ -2,7 +2,7 @@
 -- System Table MV Copies
 -- =====================================================================
 -- 보안 요구사항으로 system 카탈로그에 직접 접근할 수 없는 환경을 위해
--- system 테이블의 MV 사본을 별도 catalog.schema에 생성한다.
+-- system 테이블의 MV 사본을 별도 catalog.schema에 생성한다고 가정한다.
 --
 -- 대상 카탈로그: hurcy (파이프라인 target catalog과 동일)
 -- 스키마: compute, lakeflow, billing (system 카탈로그 구조를 미러링)
