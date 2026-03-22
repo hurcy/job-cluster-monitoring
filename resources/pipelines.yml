@@ -1,0 +1,20 @@
+resources:
+  pipelines:
+    instance_workload_profiles:
+      name: "[${bundle.target}] Instance Workload Profiles MV"
+      catalog: ${var.catalog}
+      target: ${var.analytics_schema}
+      serverless: true
+      channel: CURRENT
+      configuration:
+        workspace_id: ${var.workspace_id}
+        source_catalog: hurcy
+        source_schema: default
+        start_date: ${var.start_date}
+        end_date: ${var.end_date}
+      libraries:
+        - file:
+            path: ../workload_analysis/transformations/instance_workload_profiles_mv.sql
+      permissions:
+        - level: CAN_VIEW
+          group_name: users

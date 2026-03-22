@@ -1,1 +1,27 @@
+# Databricks
+.databricks/
+.databricks-resources.json
+
+# Documentation (generated)
 doc/
+
+# Dashboard Python scripts (local utilities)
+dashboard/*.py
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# Claude Code
+.claude/
+
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv/
+venv/

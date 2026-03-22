@@ -1,0 +1,37 @@
+bundle:
+  name: job-cluster-monitoring
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: "Unity Catalog 카탈로그 이름"
+    default: "hurcy"
+  system_copies_schema:
+    description: "시스템 테이블 MV 사본 스키마 (system_table_copies 파이프라인 출력)"
+    default: "default"
+  analytics_schema:
+    description: "분석 MV 출력 스키마 (instance_workload_profiles 파이프라인 출력)"
+    default: "test"
+  workspace_id:
+    description: "분석 대상 워크스페이스 ID"
+    default: "984752964297111"
+  start_date:
+    description: "분석 시작일 (yyyy-MM-dd 형식)"
+    default: "2025-01-01"
+  end_date:
+    description: "분석 종료일 (yyyy-MM-dd 형식)"
+    default: "2026-03-22"
+  warehouse_id:
+    description: "대시보드용 SQL Warehouse ID"
+    lookup:
+      warehouse: "Shared Endpoint"
+
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      host: https://adb-984752964297111.11.azuredatabricks.net
+      profile: DEFAULT

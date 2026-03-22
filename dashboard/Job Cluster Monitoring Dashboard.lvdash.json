@@ -1,0 +1,3292 @@
+{
+  "datasets": [
+    {
+      "name": "ds-kpi-classic",
+      "displayName": "Overview · Classic Job Compute KPI",
+      "queryLines": [
+        "SELECT DATE(run_start_time) AS run_start_time, job_id, total_cost_usd, estimated_savings_usd FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_compute_sizing_mv') WHERE DATE(run_start_time) BETWEEN :start_date AND :end_date"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "시작일",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "종료일",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-03-22"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds-kpi-serverless",
+      "displayName": "Overview · Serverless KPI",
+      "queryLines": [
+        "SELECT DATE(run_start_time) AS run_start_time, job_id, total_cost_usd FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_profiles_mv') WHERE is_serverless = true AND DATE(run_start_time) BETWEEN :start_date AND :end_date"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "시작일",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "종료일",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-03-22"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds-compute-compare",
+      "displayName": "Overview · Compute Type Cost Comparison",
+      "queryLines": [
+        "SELECT DATE(run_start_time) AS run_start_time, CASE WHEN is_serverless = true THEN 'Serverless' ELSE 'Classic' END AS compute_type, ROUND(SUM(total_cost_usd), 2) AS total_cost, COUNT(DISTINCT job_id) AS job_count FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_profiles_mv') WHERE DATE(run_start_time) BETWEEN :start_date AND :end_date GROUP BY DATE(run_start_time), CASE WHEN is_serverless = true THEN 'Serverless' ELSE 'Classic' END ORDER BY total_cost DESC"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "시작일",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "종료일",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-03-22"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds-classic-sizing",
+      "displayName": "Overview · Sizing Signal Distribution",
+      "queryLines": [
+        "SELECT DATE(run_start_time) AS run_start_time, sizing_recommendation, COUNT(*) AS job_count, ROUND(SUM(total_cost_usd), 2) AS total_cost FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_compute_sizing_mv') WHERE DATE(run_start_time) BETWEEN :start_date AND :end_date GROUP BY DATE(run_start_time), sizing_recommendation ORDER BY job_count DESC"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "시작일",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "종료일",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-03-22"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds-cpu-dist",
+      "displayName": "Overview · CPU Utilization Distribution",
+      "queryLines": [
+        "SELECT DATE(run_start_time) AS run_start_time, CASE WHEN avg_cpu_util IS NULL THEN 'No Data' WHEN avg_cpu_util < 20 THEN '<20%' WHEN avg_cpu_util < 40 THEN '20-40%' WHEN avg_cpu_util < 60 THEN '40-60%' WHEN avg_cpu_util < 80 THEN '60-80%' ELSE '>80%' END AS cpu_range, COUNT(*) AS job_count FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_compute_sizing_mv') WHERE DATE(run_start_time) BETWEEN :start_date AND :end_date GROUP BY 1, 2 ORDER BY job_count DESC"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "시작일",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "종료일",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-03-22"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds-instance-type",
+      "displayName": "Overview · Instance Type Cost Breakdown",
+      "queryLines": [
+        "SELECT DATE(run_start_time) AS run_start_time, worker_node_type, ROUND(SUM(total_cost_usd), 2) AS total_cost, COUNT(*) AS job_count FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_compute_sizing_mv') WHERE worker_node_type IS NOT NULL AND DATE(run_start_time) BETWEEN :start_date AND :end_date GROUP BY DATE(run_start_time), worker_node_type ORDER BY total_cost DESC"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "시작일",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "종료일",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-03-22"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds-job-detail",
+      "displayName": "Classic · Job Recommendation Detail",
+      "queryLines": [
+        "SELECT DATE(run_start_time) AS run_start_time, COALESCE(job_name, CONCAT('Job ', job_id)) AS job_name, sizing_recommendation, owned_by, worker_node_type, COALESCE(CAST(configured_workers AS STRING), CONCAT(CAST(min_autoscale_workers AS STRING), '-', CAST(max_autoscale_workers AS STRING))) AS workers_config, run_count, ROUND(avg_cpu_util, 1) AS avg_cpu_pct, ROUND(avg_mem_util, 1) AS avg_mem_pct, ROUND(total_cost_usd, 2) AS total_cost_usd, ROUND(estimated_savings_usd, 2) AS estimated_savings_usd, recommendation_detail FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_compute_sizing_mv') WHERE DATE(run_start_time) BETWEEN :start_date AND :end_date ORDER BY total_cost_usd DESC"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "시작일",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "종료일",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-03-22"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds-srv-top",
+      "displayName": "Serverless · Top Jobs by Cost",
+      "queryLines": [
+        "SELECT DATE(run_start_time) AS run_start_time, COALESCE(job_name, CONCAT('Job ', job_id)) AS job_label, ROUND(SUM(total_cost_usd), 2) AS total_cost, COUNT(DISTINCT job_run_id) AS run_count FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_profiles_mv') WHERE is_serverless = true AND DATE(run_start_time) BETWEEN :start_date AND :end_date GROUP BY DATE(run_start_time), job_name, job_id ORDER BY total_cost DESC"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "시작일",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "종료일",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-03-22"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds-srv-detail",
+      "displayName": "Serverless · Job Run Detail",
+      "queryLines": [
+        "SELECT DATE(run_start_time) AS run_start_time, COALESCE(job_name, CONCAT('Job ', job_id)) AS job_label, COUNT(DISTINCT job_run_id) AS run_count, ROUND(AVG(run_duration_minutes), 1) AS avg_duration_min, ROUND(SUM(total_dbus), 2) AS total_dbus, ROUND(SUM(total_cost_usd), 2) AS total_cost FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_profiles_mv') WHERE is_serverless = true AND DATE(run_start_time) BETWEEN :start_date AND :end_date GROUP BY DATE(run_start_time), job_name, job_id ORDER BY total_cost DESC LIMIT 200"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "시작일",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "종료일",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-03-22"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds-ap-kpi",
+      "displayName": "All-Purpose · Cluster KPI",
+      "queryLines": [
+        "SELECT DATE(run_start_time) AS run_start_time, cluster_id, job_id, total_cost_usd FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_profiles_mv') WHERE cluster_source = 'UI' AND DATE(run_start_time) BETWEEN :start_date AND :end_date"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "시작일",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "종료일",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-03-22"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds-ap-cluster",
+      "displayName": "All-Purpose · Cluster Sizing Detail",
+      "queryLines": [
+        "SELECT cluster_id, cluster_name, owned_by, worker_node_type, COALESCE(CAST(configured_workers AS STRING), CONCAT(COALESCE(CAST(min_autoscale_workers AS STRING),'?'), '-', COALESCE(CAST(max_autoscale_workers AS STRING),'?'))) AS workers_config, COUNT(DISTINCT job_id) AS job_count, COUNT(DISTINCT job_run_id) AS run_count, ROUND(AVG(avg_cpu_util), 1) AS avg_cpu_util, ROUND(AVG(avg_mem_util), 1) AS avg_mem_util, ROUND(SUM(total_cost_usd), 2) AS total_cost_usd, DATE(MIN(run_start_time)) AS run_start_time, CASE WHEN COUNT(DISTINCT job_id) >= 3 AND (AVG(avg_cpu_util) IS NULL OR AVG(avg_cpu_util) < 30) AND (AVG(avg_mem_util) IS NULL OR AVG(avg_mem_util) < 40) THEN 'LIKELY_DOWNSIZE' WHEN COUNT(DISTINCT job_id) >= 2 THEN 'CONSIDER_JOB_COMPUTE' WHEN COUNT(DISTINCT job_id) = 1 AND (AVG(avg_cpu_util) IS NULL OR AVG(avg_cpu_util) < 30) THEN 'LIKELY_DOWNSIZE' ELSE 'APPROPRIATE' END AS sizing_signal, CASE WHEN COUNT(DISTINCT job_id) >= 2 THEN CONCAT(CAST(COUNT(DISTINCT job_id) AS STRING), '개 Job 공유 → Job Compute 격리 시 개별 sizing 최적화 가능. Downsize 권고.') WHEN COUNT(DISTINCT job_id) = 1 AND (AVG(avg_cpu_util) IS NULL OR AVG(avg_cpu_util) < 30) THEN '단일 Job이 All-Purpose 클러스터 점유. Job Compute 전환 권고.' ELSE '현재 구성 적절.' END AS job_isolation_recommendation FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_profiles_mv') WHERE cluster_source = 'UI' AND DATE(run_start_time) BETWEEN :start_date AND :end_date GROUP BY cluster_id, cluster_name, owned_by, worker_node_type, configured_workers, min_autoscale_workers, max_autoscale_workers ORDER BY total_cost_usd DESC"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "시작일",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "종료일",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-03-22"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds-ap-signal-dist",
+      "displayName": "All-Purpose · Sizing Signal Distribution",
+      "queryLines": [
+        "WITH ap AS ( SELECT cluster_id, COUNT(DISTINCT job_id) AS job_count, AVG(avg_cpu_util) AS avg_cpu, AVG(avg_mem_util) AS avg_mem, MIN(run_start_time) AS min_run_start FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_profiles_mv') WHERE cluster_source = 'UI' AND DATE(run_start_time) BETWEEN :start_date AND :end_date GROUP BY cluster_id ) SELECT CASE WHEN job_count >= 3 AND (avg_cpu IS NULL OR avg_cpu < 30) AND (avg_mem IS NULL OR avg_mem < 40) THEN 'LIKELY_DOWNSIZE' WHEN job_count >= 2 THEN 'CONSIDER_JOB_COMPUTE' WHEN job_count = 1 AND (avg_cpu IS NULL OR avg_cpu < 30) THEN 'LIKELY_DOWNSIZE' ELSE 'APPROPRIATE' END AS sizing_signal, COUNT(*) AS cluster_count, DATE(MIN(min_run_start)) AS run_start_time FROM ap GROUP BY 1"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "시작일",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "종료일",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-03-22"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds-ap-jobs",
+      "displayName": "All-Purpose · Jobs on Shared Clusters",
+      "queryLines": [
+        "SELECT cluster_name, COALESCE(job_name, CONCAT('Job ', job_id)) AS job_name, COUNT(DISTINCT job_run_id) AS run_count, ROUND(AVG(avg_cpu_util), 1) AS avg_cpu_util, ROUND(AVG(avg_mem_util), 1) AS avg_mem_util, ROUND(SUM(total_cost_usd), 2) AS total_cost_usd, DATE(MIN(run_start_time)) AS run_start_time FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_profiles_mv') WHERE cluster_source = 'UI' AND DATE(run_start_time) BETWEEN :start_date AND :end_date GROUP BY cluster_name, job_name, job_id ORDER BY total_cost_usd DESC LIMIT 50"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "시작일",
+          "keyword": "start_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-02-20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "종료일",
+          "keyword": "end_date",
+          "dataType": "DATE",
+          "defaultSelection": {
+            "values": {
+              "dataType": "DATE",
+              "values": [
+                {
+                  "value": "2026-03-22"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "page-global-filters",
+      "displayName": "Global Filters",
+      "layout": [
+        {
+          "widget": {
+            "name": "global-filter-catalog",
+            "queries": [
+              {
+                "name": "q_ds-kpi-classic",
+                "query": {
+                  "datasetName": "ds-kpi-classic",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-kpi-serverless",
+                "query": {
+                  "datasetName": "ds-kpi-serverless",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-compute-compare",
+                "query": {
+                  "datasetName": "ds-compute-compare",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-classic-sizing",
+                "query": {
+                  "datasetName": "ds-classic-sizing",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-cpu-dist",
+                "query": {
+                  "datasetName": "ds-cpu-dist",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-instance-type",
+                "query": {
+                  "datasetName": "ds-instance-type",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-job-detail",
+                "query": {
+                  "datasetName": "ds-job-detail",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-srv-top",
+                "query": {
+                  "datasetName": "ds-srv-top",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-srv-detail",
+                "query": {
+                  "datasetName": "ds-srv-detail",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-ap-kpi",
+                "query": {
+                  "datasetName": "ds-ap-kpi",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-ap-cluster",
+                "query": {
+                  "datasetName": "ds-ap-cluster",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-ap-signal-dist",
+                "query": {
+                  "datasetName": "ds-ap-signal-dist",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-ap-jobs",
+                "query": {
+                  "datasetName": "ds-ap-jobs",
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-text-entry",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "p_catalog",
+                    "queryName": "q_ds-kpi-classic",
+                    "displayName": "카탈로그"
+                  },
+                  {
+                    "fieldName": "p_catalog",
+                    "queryName": "q_ds-kpi-serverless",
+                    "displayName": "카탈로그"
+                  },
+                  {
+                    "fieldName": "p_catalog",
+                    "queryName": "q_ds-compute-compare",
+                    "displayName": "카탈로그"
+                  },
+                  {
+                    "fieldName": "p_catalog",
+                    "queryName": "q_ds-classic-sizing",
+                    "displayName": "카탈로그"
+                  },
+                  {
+                    "fieldName": "p_catalog",
+                    "queryName": "q_ds-cpu-dist",
+                    "displayName": "카탈로그"
+                  },
+                  {
+                    "fieldName": "p_catalog",
+                    "queryName": "q_ds-instance-type",
+                    "displayName": "카탈로그"
+                  },
+                  {
+                    "fieldName": "p_catalog",
+                    "queryName": "q_ds-job-detail",
+                    "displayName": "카탈로그"
+                  },
+                  {
+                    "fieldName": "p_catalog",
+                    "queryName": "q_ds-srv-top",
+                    "displayName": "카탈로그"
+                  },
+                  {
+                    "fieldName": "p_catalog",
+                    "queryName": "q_ds-srv-detail",
+                    "displayName": "카탈로그"
+                  },
+                  {
+                    "fieldName": "p_catalog",
+                    "queryName": "q_ds-ap-kpi",
+                    "displayName": "카탈로그"
+                  },
+                  {
+                    "fieldName": "p_catalog",
+                    "queryName": "q_ds-ap-cluster",
+                    "displayName": "카탈로그"
+                  },
+                  {
+                    "fieldName": "p_catalog",
+                    "queryName": "q_ds-ap-signal-dist",
+                    "displayName": "카탈로그"
+                  },
+                  {
+                    "fieldName": "p_catalog",
+                    "queryName": "q_ds-ap-jobs",
+                    "displayName": "카탈로그"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "카탈로그 (Catalog)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "global-filter-schema",
+            "queries": [
+              {
+                "name": "q_ds-kpi-classic",
+                "query": {
+                  "datasetName": "ds-kpi-classic",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-kpi-serverless",
+                "query": {
+                  "datasetName": "ds-kpi-serverless",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-compute-compare",
+                "query": {
+                  "datasetName": "ds-compute-compare",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-classic-sizing",
+                "query": {
+                  "datasetName": "ds-classic-sizing",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-cpu-dist",
+                "query": {
+                  "datasetName": "ds-cpu-dist",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-instance-type",
+                "query": {
+                  "datasetName": "ds-instance-type",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-job-detail",
+                "query": {
+                  "datasetName": "ds-job-detail",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-srv-top",
+                "query": {
+                  "datasetName": "ds-srv-top",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-srv-detail",
+                "query": {
+                  "datasetName": "ds-srv-detail",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-ap-kpi",
+                "query": {
+                  "datasetName": "ds-ap-kpi",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-ap-cluster",
+                "query": {
+                  "datasetName": "ds-ap-cluster",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-ap-signal-dist",
+                "query": {
+                  "datasetName": "ds-ap-signal-dist",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-ap-jobs",
+                "query": {
+                  "datasetName": "ds-ap-jobs",
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-text-entry",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "p_schema",
+                    "queryName": "q_ds-kpi-classic",
+                    "displayName": "스키마"
+                  },
+                  {
+                    "fieldName": "p_schema",
+                    "queryName": "q_ds-kpi-serverless",
+                    "displayName": "스키마"
+                  },
+                  {
+                    "fieldName": "p_schema",
+                    "queryName": "q_ds-compute-compare",
+                    "displayName": "스키마"
+                  },
+                  {
+                    "fieldName": "p_schema",
+                    "queryName": "q_ds-classic-sizing",
+                    "displayName": "스키마"
+                  },
+                  {
+                    "fieldName": "p_schema",
+                    "queryName": "q_ds-cpu-dist",
+                    "displayName": "스키마"
+                  },
+                  {
+                    "fieldName": "p_schema",
+                    "queryName": "q_ds-instance-type",
+                    "displayName": "스키마"
+                  },
+                  {
+                    "fieldName": "p_schema",
+                    "queryName": "q_ds-job-detail",
+                    "displayName": "스키마"
+                  },
+                  {
+                    "fieldName": "p_schema",
+                    "queryName": "q_ds-srv-top",
+                    "displayName": "스키마"
+                  },
+                  {
+                    "fieldName": "p_schema",
+                    "queryName": "q_ds-srv-detail",
+                    "displayName": "스키마"
+                  },
+                  {
+                    "fieldName": "p_schema",
+                    "queryName": "q_ds-ap-kpi",
+                    "displayName": "스키마"
+                  },
+                  {
+                    "fieldName": "p_schema",
+                    "queryName": "q_ds-ap-cluster",
+                    "displayName": "스키마"
+                  },
+                  {
+                    "fieldName": "p_schema",
+                    "queryName": "q_ds-ap-signal-dist",
+                    "displayName": "스키마"
+                  },
+                  {
+                    "fieldName": "p_schema",
+                    "queryName": "q_ds-ap-jobs",
+                    "displayName": "스키마"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "스키마 (Schema)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "global-filter-date",
+            "queries": [
+              {
+                "name": "q_ds-kpi-classic",
+                "query": {
+                  "datasetName": "ds-kpi-classic",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-kpi-serverless",
+                "query": {
+                  "datasetName": "ds-kpi-serverless",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-compute-compare",
+                "query": {
+                  "datasetName": "ds-compute-compare",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-classic-sizing",
+                "query": {
+                  "datasetName": "ds-classic-sizing",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-cpu-dist",
+                "query": {
+                  "datasetName": "ds-cpu-dist",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-instance-type",
+                "query": {
+                  "datasetName": "ds-instance-type",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-job-detail",
+                "query": {
+                  "datasetName": "ds-job-detail",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-srv-top",
+                "query": {
+                  "datasetName": "ds-srv-top",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-srv-detail",
+                "query": {
+                  "datasetName": "ds-srv-detail",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-ap-kpi",
+                "query": {
+                  "datasetName": "ds-ap-kpi",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-ap-cluster",
+                "query": {
+                  "datasetName": "ds-ap-cluster",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-ap-signal-dist",
+                "query": {
+                  "datasetName": "ds-ap-signal-dist",
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "q_ds-ap-jobs",
+                "query": {
+                  "datasetName": "ds-ap-jobs",
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "start_date",
+                    "queryName": "q_ds-kpi-classic",
+                    "displayName": "조회 기간",
+                    "defaultSelection": {
+                      "values": {
+                        "dataType": "DATE_RANGE",
+                        "values": [
+                          {
+                            "value": "2026-02-20"
+                          },
+                          {
+                            "value": "2026-03-22"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "start_date",
+                    "queryName": "q_ds-kpi-serverless",
+                    "displayName": "조회 기간",
+                    "defaultSelection": {
+                      "values": {
+                        "dataType": "DATE_RANGE",
+                        "values": [
+                          {
+                            "value": "2026-02-20"
+                          },
+                          {
+                            "value": "2026-03-22"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "start_date",
+                    "queryName": "q_ds-compute-compare",
+                    "displayName": "조회 기간",
+                    "defaultSelection": {
+                      "values": {
+                        "dataType": "DATE_RANGE",
+                        "values": [
+                          {
+                            "value": "2026-02-20"
+                          },
+                          {
+                            "value": "2026-03-22"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "start_date",
+                    "queryName": "q_ds-classic-sizing",
+                    "displayName": "조회 기간",
+                    "defaultSelection": {
+                      "values": {
+                        "dataType": "DATE_RANGE",
+                        "values": [
+                          {
+                            "value": "2026-02-20"
+                          },
+                          {
+                            "value": "2026-03-22"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "start_date",
+                    "queryName": "q_ds-cpu-dist",
+                    "displayName": "조회 기간",
+                    "defaultSelection": {
+                      "values": {
+                        "dataType": "DATE_RANGE",
+                        "values": [
+                          {
+                            "value": "2026-02-20"
+                          },
+                          {
+                            "value": "2026-03-22"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "start_date",
+                    "queryName": "q_ds-instance-type",
+                    "displayName": "조회 기간",
+                    "defaultSelection": {
+                      "values": {
+                        "dataType": "DATE_RANGE",
+                        "values": [
+                          {
+                            "value": "2026-02-20"
+                          },
+                          {
+                            "value": "2026-03-22"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "start_date",
+                    "queryName": "q_ds-job-detail",
+                    "displayName": "조회 기간",
+                    "defaultSelection": {
+                      "values": {
+                        "dataType": "DATE_RANGE",
+                        "values": [
+                          {
+                            "value": "2026-02-20"
+                          },
+                          {
+                            "value": "2026-03-22"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "start_date",
+                    "queryName": "q_ds-srv-top",
+                    "displayName": "조회 기간",
+                    "defaultSelection": {
+                      "values": {
+                        "dataType": "DATE_RANGE",
+                        "values": [
+                          {
+                            "value": "2026-02-20"
+                          },
+                          {
+                            "value": "2026-03-22"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "start_date",
+                    "queryName": "q_ds-srv-detail",
+                    "displayName": "조회 기간",
+                    "defaultSelection": {
+                      "values": {
+                        "dataType": "DATE_RANGE",
+                        "values": [
+                          {
+                            "value": "2026-02-20"
+                          },
+                          {
+                            "value": "2026-03-22"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "start_date",
+                    "queryName": "q_ds-ap-kpi",
+                    "displayName": "조회 기간",
+                    "defaultSelection": {
+                      "values": {
+                        "dataType": "DATE_RANGE",
+                        "values": [
+                          {
+                            "value": "2026-02-20"
+                          },
+                          {
+                            "value": "2026-03-22"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "start_date",
+                    "queryName": "q_ds-ap-cluster",
+                    "displayName": "조회 기간",
+                    "defaultSelection": {
+                      "values": {
+                        "dataType": "DATE_RANGE",
+                        "values": [
+                          {
+                            "value": "2026-02-20"
+                          },
+                          {
+                            "value": "2026-03-22"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "start_date",
+                    "queryName": "q_ds-ap-signal-dist",
+                    "displayName": "조회 기간",
+                    "defaultSelection": {
+                      "values": {
+                        "dataType": "DATE_RANGE",
+                        "values": [
+                          {
+                            "value": "2026-02-20"
+                          },
+                          {
+                            "value": "2026-03-22"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "start_date",
+                    "queryName": "q_ds-ap-jobs",
+                    "displayName": "조회 기간",
+                    "defaultSelection": {
+                      "values": {
+                        "dataType": "DATE_RANGE",
+                        "values": [
+                          {
+                            "value": "2026-02-20"
+                          },
+                          {
+                            "value": "2026-03-22"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "조회 기간 (시작일 ~ 종료일)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS"
+    },
+    {
+      "name": "page-overview",
+      "displayName": "Overview",
+      "layout": [
+        {
+          "widget": {
+            "name": "filter-date-page-overview",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-kpi-classic",
+                  "fields": [
+                    {
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "run_start_time",
+                    "displayName": "조회 기간",
+                    "queryName": "main_query",
+                    "defaultSelection": {
+                      "values": {
+                        "dataType": "DATE_RANGE",
+                        "values": [
+                          {
+                            "value": "2026-02-20"
+                          },
+                          {
+                            "value": "2026-03-22"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "조회 기간 (시작일 ~ 종료일)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "title-overview",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Cluster & Job Compute Right-Sizing Dashboard"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "subtitle-overview",
+            "multilineTextboxSpec": {
+              "lines": [
+                "Sizing signals: DEFINITE_DOWNSIZE · LIKELY_DOWNSIZE · BURST_PATTERN · IO_BOTTLENECK · CONSIDER_UPSIZE · APPROPRIATE"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-classic-jobs",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-kpi-classic",
+                  "fields": [
+                    {
+                      "name": "count(DISTINCT job_id)",
+                      "expression": "COUNT(DISTINCT `job_id`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(DISTINCT job_id)",
+                  "displayName": "Classic Job Compute Jobs"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Classic Job Compute Jobs"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-classic-cost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-kpi-classic",
+                  "fields": [
+                    {
+                      "name": "sum(total_cost_usd)",
+                      "expression": "SUM(`total_cost_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(total_cost_usd)",
+                  "displayName": "Classic Total Cost (USD)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Classic Total Cost (USD)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-serverless-cost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-kpi-serverless",
+                  "fields": [
+                    {
+                      "name": "sum(total_cost_usd)",
+                      "expression": "SUM(`total_cost_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(total_cost_usd)",
+                  "displayName": "Serverless Total Cost (USD)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Serverless Total Cost (USD)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "section-compute-compare",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### Compute Type Analysis"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "chart-compute-cost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-compute-compare",
+                  "fields": [
+                    {
+                      "name": "compute_type",
+                      "expression": "`compute_type`"
+                    },
+                    {
+                      "name": "sum(total_cost)",
+                      "expression": "SUM(`total_cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "compute_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Compute Type"
+                },
+                "y": {
+                  "fieldName": "sum(total_cost)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Total Cost (USD)"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "mark": {
+                "colors": [
+                  "#00A972",
+                  "#FFAB00"
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Total Cost by Compute Type (USD)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "chart-compute-jobs",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-compute-compare",
+                  "fields": [
+                    {
+                      "name": "compute_type",
+                      "expression": "`compute_type`"
+                    },
+                    {
+                      "name": "sum(job_count)",
+                      "expression": "SUM(`job_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "compute_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Compute Type"
+                },
+                "y": {
+                  "fieldName": "sum(job_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Job Count"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "mark": {
+                "colors": [
+                  "#00A972",
+                  "#FFAB00"
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Job Count by Compute Type"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 8,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "section-classic",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### Classic Job Compute Analysis"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "chart-sizing-signal",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-classic-sizing",
+                  "fields": [
+                    {
+                      "name": "sizing_recommendation",
+                      "expression": "`sizing_recommendation`"
+                    },
+                    {
+                      "name": "sum(job_count)",
+                      "expression": "SUM(`job_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sizing_recommendation",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Sizing Signal"
+                },
+                "y": {
+                  "fieldName": "sum(job_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Job Count"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "mark": {
+                "colors": [
+                  "#FF3621",
+                  "#FF8C00",
+                  "#00A972",
+                  "#2272B4",
+                  "#ABB0B8"
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Sizing Signal Distribution"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 15,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "chart-sizing-cost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-classic-sizing",
+                  "fields": [
+                    {
+                      "name": "sizing_recommendation",
+                      "expression": "`sizing_recommendation`"
+                    },
+                    {
+                      "name": "sum(total_cost)",
+                      "expression": "SUM(`total_cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sizing_recommendation",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Sizing Signal"
+                },
+                "y": {
+                  "fieldName": "sum(total_cost)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Total Cost (USD)"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "mark": {
+                "colors": [
+                  "#FF3621",
+                  "#FF8C00",
+                  "#00A972",
+                  "#2272B4",
+                  "#ABB0B8"
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Cost by Sizing Signal (USD)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 15,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "chart-cpu-dist",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-cpu-dist",
+                  "fields": [
+                    {
+                      "name": "cpu_range",
+                      "expression": "`cpu_range`"
+                    },
+                    {
+                      "name": "sum(job_count)",
+                      "expression": "SUM(`job_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "cpu_range",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "CPU Utilization Range"
+                },
+                "y": {
+                  "fieldName": "sum(job_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Job Count"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "mark": {
+                "colors": [
+                  "#FF3621",
+                  "#FF8C00",
+                  "#FFAB00",
+                  "#00A972",
+                  "#2272B4"
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "CPU Utilization Distribution"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 21,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "chart-instance-type",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-instance-type",
+                  "fields": [
+                    {
+                      "name": "worker_node_type",
+                      "expression": "`worker_node_type`"
+                    },
+                    {
+                      "name": "sum(total_cost)",
+                      "expression": "SUM(`total_cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "worker_node_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Instance Type"
+                },
+                "y": {
+                  "fieldName": "sum(total_cost)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Total Cost (USD)"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Cost by Instance Type (USD)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 21,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-savings",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-kpi-classic",
+                  "fields": [
+                    {
+                      "name": "sum(estimated_savings_usd)",
+                      "expression": "SUM(`estimated_savings_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(estimated_savings_usd)",
+                  "displayName": "Estimated Savings (USD)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Estimated Savings (USD)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 27,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-total-cost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-kpi-classic",
+                  "fields": [
+                    {
+                      "name": "sum(total_cost_usd)",
+                      "expression": "SUM(`total_cost_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(total_cost_usd)",
+                  "displayName": "Total Classic Cost (USD)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Total Classic Cost (USD)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 27,
+            "width": 2,
+            "height": 3
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "page-classic",
+      "displayName": "Classic Job Compute",
+      "layout": [
+        {
+          "widget": {
+            "name": "filter-date-classic",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-job-detail",
+                  "fields": [
+                    {
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "run_start_time",
+                    "displayName": "조회 기간",
+                    "queryName": "main_query",
+                    "defaultSelection": {
+                      "values": {
+                        "dataType": "DATE_RANGE",
+                        "values": [
+                          {
+                            "value": "2026-02-20"
+                          },
+                          {
+                            "value": "2026-03-22"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "조회 기간"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "table-job-detail",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-job-detail",
+                  "fields": [
+                    {
+                      "name": "job_name",
+                      "expression": "`job_name`"
+                    },
+                    {
+                      "name": "sizing_recommendation",
+                      "expression": "`sizing_recommendation`"
+                    },
+                    {
+                      "name": "owned_by",
+                      "expression": "`owned_by`"
+                    },
+                    {
+                      "name": "worker_node_type",
+                      "expression": "`worker_node_type`"
+                    },
+                    {
+                      "name": "workers_config",
+                      "expression": "`workers_config`"
+                    },
+                    {
+                      "name": "run_count",
+                      "expression": "`run_count`"
+                    },
+                    {
+                      "name": "avg_cpu_pct",
+                      "expression": "`avg_cpu_pct`"
+                    },
+                    {
+                      "name": "avg_mem_pct",
+                      "expression": "`avg_mem_pct`"
+                    },
+                    {
+                      "name": "total_cost_usd",
+                      "expression": "`total_cost_usd`"
+                    },
+                    {
+                      "name": "estimated_savings_usd",
+                      "expression": "`estimated_savings_usd`"
+                    },
+                    {
+                      "name": "recommendation_detail",
+                      "expression": "`recommendation_detail`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "job_name",
+                    "displayName": "Job Name",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "sizing_recommendation",
+                    "displayName": "Sizing Signal",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "owned_by",
+                    "displayName": "Owner",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "worker_node_type",
+                    "displayName": "Instance Type",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "workers_config",
+                    "displayName": "Workers",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "run_count",
+                    "displayName": "Runs",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "avg_cpu_pct",
+                    "displayName": "Avg CPU %",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "avg_mem_pct",
+                    "displayName": "Avg Mem %",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "total_cost_usd",
+                    "displayName": "Total Cost ($)",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "estimated_savings_usd",
+                    "displayName": "Est. Savings ($)",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "recommendation_detail",
+                    "displayName": "Recommendation",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Job-Level Sizing Recommendations (Classic)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 6,
+            "height": 12
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "page-serverless",
+      "displayName": "Serverless",
+      "layout": [
+        {
+          "widget": {
+            "name": "filter-date-srv",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-srv-top",
+                  "fields": [
+                    {
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "run_start_time",
+                    "displayName": "조회 기간",
+                    "queryName": "main_query",
+                    "defaultSelection": {
+                      "values": {
+                        "dataType": "DATE_RANGE",
+                        "values": [
+                          {
+                            "value": "2026-02-20"
+                          },
+                          {
+                            "value": "2026-03-22"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "조회 기간"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "chart-srv-top",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-srv-top",
+                  "fields": [
+                    {
+                      "name": "job_label",
+                      "expression": "`job_label`"
+                    },
+                    {
+                      "name": "sum(total_cost)",
+                      "expression": "SUM(`total_cost`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "job_label",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Job"
+                },
+                "y": {
+                  "fieldName": "sum(total_cost)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Total Cost (USD)"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Top Serverless Jobs by Cost"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "table-srv-detail",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-srv-detail",
+                  "fields": [
+                    {
+                      "name": "job_label",
+                      "expression": "`job_label`"
+                    },
+                    {
+                      "name": "run_count",
+                      "expression": "`run_count`"
+                    },
+                    {
+                      "name": "avg_duration_min",
+                      "expression": "`avg_duration_min`"
+                    },
+                    {
+                      "name": "total_dbus",
+                      "expression": "`total_dbus`"
+                    },
+                    {
+                      "name": "total_cost",
+                      "expression": "`total_cost`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "job_label",
+                    "displayName": "Job",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "run_count",
+                    "displayName": "Runs",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "avg_duration_min",
+                    "displayName": "Avg Duration (min)",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "total_dbus",
+                    "displayName": "Total DBUs",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "total_cost",
+                    "displayName": "Total Cost ($)",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Serverless Job Run Detail"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 6,
+            "height": 10
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "page-all-purpose",
+      "displayName": "All-Purpose Clusters",
+      "layout": [
+        {
+          "widget": {
+            "name": "filter-date-ap",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-ap-kpi",
+                  "fields": [
+                    {
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "run_start_time",
+                    "displayName": "조회 기간",
+                    "queryName": "main_query",
+                    "defaultSelection": {
+                      "values": {
+                        "dataType": "DATE_RANGE",
+                        "values": [
+                          {
+                            "value": "2026-02-20"
+                          },
+                          {
+                            "value": "2026-03-22"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "조회 기간"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-ap-clusters",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-ap-kpi",
+                  "fields": [
+                    {
+                      "name": "count(DISTINCT cluster_id)",
+                      "expression": "COUNT(DISTINCT `cluster_id`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(DISTINCT cluster_id)",
+                  "displayName": "All-Purpose Clusters"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "All-Purpose Clusters"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-ap-jobs",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-ap-kpi",
+                  "fields": [
+                    {
+                      "name": "count(DISTINCT job_id)",
+                      "expression": "COUNT(DISTINCT `job_id`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "count(DISTINCT job_id)",
+                  "displayName": "Jobs on All-Purpose"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Jobs on All-Purpose"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi-ap-cost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-ap-kpi",
+                  "fields": [
+                    {
+                      "name": "sum(total_cost_usd)",
+                      "expression": "SUM(`total_cost_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(total_cost_usd)",
+                  "displayName": "All-Purpose Total Cost (USD)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "All-Purpose Total Cost (USD)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "chart-ap-signal",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-ap-signal-dist",
+                  "fields": [
+                    {
+                      "name": "sizing_signal",
+                      "expression": "`sizing_signal`"
+                    },
+                    {
+                      "name": "sum(cluster_count)",
+                      "expression": "SUM(`cluster_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sizing_signal",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Sizing Signal"
+                },
+                "y": {
+                  "fieldName": "sum(cluster_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Cluster Count"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "mark": {
+                "colors": [
+                  "#FF3621",
+                  "#FF8C00",
+                  "#00A972"
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Cluster Sizing Signal Distribution"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "table-ap-cluster",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-ap-cluster",
+                  "fields": [
+                    {
+                      "name": "cluster_name",
+                      "expression": "`cluster_name`"
+                    },
+                    {
+                      "name": "owned_by",
+                      "expression": "`owned_by`"
+                    },
+                    {
+                      "name": "worker_node_type",
+                      "expression": "`worker_node_type`"
+                    },
+                    {
+                      "name": "workers_config",
+                      "expression": "`workers_config`"
+                    },
+                    {
+                      "name": "job_count",
+                      "expression": "`job_count`"
+                    },
+                    {
+                      "name": "run_count",
+                      "expression": "`run_count`"
+                    },
+                    {
+                      "name": "avg_cpu_util",
+                      "expression": "`avg_cpu_util`"
+                    },
+                    {
+                      "name": "avg_mem_util",
+                      "expression": "`avg_mem_util`"
+                    },
+                    {
+                      "name": "total_cost_usd",
+                      "expression": "`total_cost_usd`"
+                    },
+                    {
+                      "name": "sizing_signal",
+                      "expression": "`sizing_signal`"
+                    },
+                    {
+                      "name": "job_isolation_recommendation",
+                      "expression": "`job_isolation_recommendation`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "cluster_name",
+                    "displayName": "Cluster",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "owned_by",
+                    "displayName": "Owner",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "worker_node_type",
+                    "displayName": "Instance",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "workers_config",
+                    "displayName": "Workers",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "job_count",
+                    "displayName": "Jobs",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "run_count",
+                    "displayName": "Runs",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "avg_cpu_util",
+                    "displayName": "CPU %",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "avg_mem_util",
+                    "displayName": "Mem %",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "total_cost_usd",
+                    "displayName": "Cost ($)",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "sizing_signal",
+                    "displayName": "Signal",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "job_isolation_recommendation",
+                    "displayName": "Recommendation",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "All-Purpose Cluster Sizing Detail"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 6,
+            "height": 10
+          }
+        },
+        {
+          "widget": {
+            "name": "table-ap-jobs",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-ap-jobs",
+                  "fields": [
+                    {
+                      "name": "cluster_name",
+                      "expression": "`cluster_name`"
+                    },
+                    {
+                      "name": "job_name",
+                      "expression": "`job_name`"
+                    },
+                    {
+                      "name": "run_count",
+                      "expression": "`run_count`"
+                    },
+                    {
+                      "name": "avg_cpu_util",
+                      "expression": "`avg_cpu_util`"
+                    },
+                    {
+                      "name": "avg_mem_util",
+                      "expression": "`avg_mem_util`"
+                    },
+                    {
+                      "name": "total_cost_usd",
+                      "expression": "`total_cost_usd`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "cluster_name",
+                    "displayName": "Cluster",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "job_name",
+                    "displayName": "Job",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "run_count",
+                    "displayName": "Runs",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "avg_cpu_util",
+                    "displayName": "CPU %",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "avg_mem_util",
+                    "displayName": "Mem %",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  },
+                  {
+                    "fieldName": "total_cost_usd",
+                    "displayName": "Cost ($)",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ]
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Jobs Running on Shared All-Purpose Clusters"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 21,
+            "width": 6,
+            "height": 10
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ]
+}
