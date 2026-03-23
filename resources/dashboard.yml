@@ -2,7 +2,7 @@ resources:
   dashboards:
     job_cluster_monitoring:
       display_name: "[${bundle.target}] Job Cluster Monitoring Dashboard"
-      file_path: "../dashboard/Cluster & Job Compute Right-Sizing Dashboard.lvdash.json"
+      file_path: "../dashboard/Job Cluster Monitoring Dashboard.lvdash.json"
       warehouse_id: ${var.warehouse_id}
       permissions:
         - level: CAN_RUN
