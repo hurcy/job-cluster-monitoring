@@ -45,8 +45,7 @@
 --   workspace_id      - 분석 대상 워크스페이스 ID (STRING)
 --   source_catalog    - 시스템 테이블 사본 카탈로그 (STRING, default: hurcy)
 --   source_schema     - 시스템 테이블 사본 스키마 (STRING, default: default)
---   start_date        - 조회 시작일 (STRING, format: yyyy-MM-dd)
---   end_date          - 조회 종료일 (STRING, format: yyyy-MM-dd)
+--   (날짜 범위: Rolling 90-day window — CURRENT_DATE()-90 ~ CURRENT_DATE())
 -- =====================================================================
 
 
@@ -66,8 +65,8 @@ SELECT
 FROM ${source_catalog}.${source_schema}.node_timeline
 WHERE workspace_id = '${workspace_id}'
   AND driver = FALSE
-  AND start_time >= '${start_date}'
-  AND start_time <  '${end_date}'
+  AND start_time >= DATE_SUB(CURRENT_DATE(), 90)
+  AND start_time <  CURRENT_DATE()
 GROUP BY cluster_id, node_type, DATE_TRUNC('minute', start_time);
 
 
@@ -136,8 +135,8 @@ SELECT
 FROM ${source_catalog}.${source_schema}.node_timeline
 WHERE workspace_id = '${workspace_id}'
   AND driver = FALSE
-  AND start_time >= '${start_date}'
-  AND start_time <  '${end_date}'
+  AND start_time >= DATE_SUB(CURRENT_DATE(), 90)
+  AND start_time <  CURRENT_DATE()
 GROUP BY workspace_id, cluster_id, driver, node_type, instance_id;
 
 
@@ -184,8 +183,8 @@ SELECT
 FROM ${source_catalog}.${source_schema}.job_task_run_timeline tr
 WHERE tr.workspace_id = '${workspace_id}'
   AND ARRAY_SIZE(tr.compute_ids) > 0
-  AND tr.period_start_time >= '${start_date}'
-  AND tr.period_start_time <  '${end_date}';
+  AND tr.period_start_time >= DATE_SUB(CURRENT_DATE(), 90)
+  AND tr.period_start_time <  CURRENT_DATE();
 
 
 -- =================================================================
@@ -254,14 +253,71 @@ WHERE _rn = 1;
 
 
 -- =================================================================
--- 8. cluster_job_run_cost_v  [TEMPORARY LIVE VIEW]
+-- 8a. ap_cluster_cost_v  [TEMPORARY LIVE VIEW]
+-- =================================================================
+-- All-Purpose 클러스터 단위 비용 집계.
+-- billing_origin_product = 'ALL_PURPOSE'는 job_id가 NULL이므로
+-- cluster_id 단위로만 집계한다.
+-- =================================================================
+
+CREATE TEMPORARY LIVE VIEW ap_cluster_cost_v
+AS
+SELECT
+  u.workspace_id,
+  u.usage_metadata.cluster_id              AS cluster_id,
+  ROUND(SUM(u.usage_quantity), 4)          AS total_dbus,
+  ROUND(SUM(
+    u.usage_quantity
+    * COALESCE(lp.pricing.effective_list.default, lp.pricing.default)
+  ), 2)                                    AS total_cost_usd
+FROM ${source_catalog}.${source_schema}.usage u
+LEFT JOIN ${source_catalog}.${source_schema}.list_prices lp
+  ON  u.sku_name         = lp.sku_name
+  AND u.cloud            = lp.cloud
+  AND u.usage_start_time >= lp.price_start_time
+  AND (lp.price_end_time IS NULL OR u.usage_start_time < lp.price_end_time)
+WHERE u.workspace_id = '${workspace_id}'
+  AND u.billing_origin_product = 'ALL_PURPOSE'
+  AND u.usage_metadata.cluster_id IS NOT NULL
+  AND u.usage_date >= DATE_SUB(CURRENT_DATE(), 90)
+  AND u.usage_date <  CURRENT_DATE()
+GROUP BY u.workspace_id, u.usage_metadata.cluster_id;
+
+
+-- =================================================================
+-- 8b. ap_cluster_run_count_v  [TEMPORARY LIVE VIEW]
+-- =================================================================
+-- All-Purpose 클러스터별 distinct job_run 수.
+-- 비용 균등 배분 시 분모로 사용한다.
+-- =================================================================
+
+CREATE TEMPORARY LIVE VIEW ap_cluster_run_count_v
+AS
+SELECT
+  workspace_id,
+  cluster_id,
+  COUNT(DISTINCT CONCAT(job_id, '-', job_run_id)) AS run_count
+FROM LIVE.exploded_task_runs_v
+GROUP BY workspace_id, cluster_id;
+
+
+-- =================================================================
+-- 8c. cluster_job_run_cost_v  [TEMPORARY LIVE VIEW]
 -- =================================================================
 -- 잡 실행 단위 비용 (DBU + USD).
 -- is_serverless 컬럼으로 serverless/classic 비용을 구분한다.
+--
+-- Job Compute / Serverless (billing_origin_product = 'JOBS'):
+--   usage_metadata에 job_id, job_run_id가 존재하므로 직접 사용.
+-- All-Purpose (billing_origin_product = 'ALL_PURPOSE'):
+--   usage_metadata에 job_id가 NULL이므로, cluster_id 단위 비용을
+--   exploded_task_runs_v를 통해 job_id/job_run_id로 매핑한다.
+--   비용은 해당 클러스터에서 실행된 job_run 수 비례로 균등 배분한다.
 -- =================================================================
 
 CREATE TEMPORARY LIVE VIEW cluster_job_run_cost_v
 AS
+-- Part 1: Job Compute / Serverless — usage_metadata에 job_id 존재
 SELECT
   u.workspace_id,
   u.usage_metadata.cluster_id                AS cluster_id,
@@ -282,9 +338,33 @@ LEFT JOIN ${source_catalog}.${source_schema}.list_prices lp
 WHERE u.workspace_id = '${workspace_id}'
   AND u.billing_origin_product = 'JOBS'
   AND u.usage_metadata.job_id IS NOT NULL
-  AND u.usage_date >= '${start_date}'
-  AND u.usage_date <  '${end_date}'
-GROUP BY u.workspace_id, u.usage_metadata.cluster_id, u.usage_metadata.job_id, u.usage_metadata.job_run_id, COALESCE(u.product_features.is_serverless, false);
+  AND u.usage_date >= DATE_SUB(CURRENT_DATE(), 90)
+  AND u.usage_date <  CURRENT_DATE()
+GROUP BY u.workspace_id, u.usage_metadata.cluster_id, u.usage_metadata.job_id,
+         u.usage_metadata.job_run_id, COALESCE(u.product_features.is_serverless, false)
+
+UNION ALL
+
+-- Part 2: All-Purpose — cluster_id 단위 비용을 job_run별로 균등 배분
+SELECT
+  ac.workspace_id,
+  ac.cluster_id,
+  etr.job_id,
+  etr.job_run_id,
+  false                                      AS is_serverless,
+  ROUND(ac.total_dbus / rc.run_count, 4)     AS total_dbus,
+  ROUND(ac.total_cost_usd / rc.run_count, 2) AS total_cost_usd
+FROM LIVE.ap_cluster_cost_v ac
+JOIN LIVE.ap_cluster_run_count_v rc
+  ON  ac.workspace_id = rc.workspace_id
+  AND ac.cluster_id   = rc.cluster_id
+  AND rc.run_count > 0
+JOIN (
+  SELECT DISTINCT workspace_id, cluster_id, job_id, job_run_id
+  FROM LIVE.exploded_task_runs_v
+) etr
+  ON  ac.workspace_id = etr.workspace_id
+  AND ac.cluster_id   = etr.cluster_id;
 
 
 -- =================================================================
@@ -295,6 +375,22 @@ GROUP BY u.workspace_id, u.usage_metadata.cluster_id, u.usage_metadata.job_id, u
 -- =================================================================
 
 CREATE OR REFRESH MATERIALIZED VIEW instance_workload_analysis_mv
+(
+  -- Sanity: 필수 키 NOT NULL
+  CONSTRAINT dq_workspace_id_not_null EXPECT (workspace_id IS NOT NULL),
+  CONSTRAINT dq_cluster_id_not_null EXPECT (cluster_id IS NOT NULL),
+  CONSTRAINT dq_instance_id_not_null EXPECT (instance_id IS NOT NULL),
+
+  -- CPU/Mem 범위 (0~100%)
+  CONSTRAINT dq_cpu_util_range EXPECT (avg_cpu_util IS NULL OR (avg_cpu_util >= 0 AND avg_cpu_util <= 100)),
+  CONSTRAINT dq_mem_util_range EXPECT (avg_mem_util IS NULL OR (avg_mem_util >= 0 AND avg_mem_util <= 100)),
+
+  -- Workload profile 유효값
+  CONSTRAINT dq_valid_workload_profile EXPECT (workload_profile IN (
+    'CPU Intensive', 'Memory Intensive', 'Balanced - High Utilization',
+    'Under-utilized', 'Balanced - Moderate Utilization'
+  ))
+)
 AS
 SELECT
   iu.workspace_id,
@@ -383,10 +479,10 @@ SELECT
   run_id                               AS job_run_id,
   MIN(period_start_time)               AS period_start_time,
   MAX(period_end_time)                 AS period_end_time
-FROM system.lakeflow.job_run_timeline
+FROM ${source_catalog}.${source_schema}.job_run_timeline
 WHERE workspace_id = '${workspace_id}'
-  AND period_start_time >= '${start_date}'
-  AND period_start_time <  '${end_date}'
+  AND period_start_time >= DATE_SUB(CURRENT_DATE(), 90)
+  AND period_start_time <  CURRENT_DATE()
 GROUP BY workspace_id, job_id, run_id;
 
 
@@ -394,13 +490,29 @@ GROUP BY workspace_id, job_id, run_id;
 -- 10. job_run_cost_analysis_mv  [MATERIALIZED VIEW] — 최종 출력
 -- =================================================================
 -- Job Run 단위 비용 프로파일.
--- TEMPORARY VIEW(8)를 driving table로 하여 다른 TEMPORARY VIEW들을
--- LEFT JOIN한다. Serverless 비용도 누락 없이 유지한다.
--- run_start_time: classic은 task_run_stats_v, serverless는
--- job_run_timeline_v에서 COALESCE로 보완한다.
+-- cluster_job_run_cost_v를 driving table로 1:1 JOIN만 수행.
+-- instance_utilization은 downstream sizing MV에서 직접 집계한다.
 -- =================================================================
 
 CREATE OR REFRESH MATERIALIZED VIEW job_run_cost_analysis_mv
+(
+  -- Sanity: 필수 키 NOT NULL
+  CONSTRAINT dq_workspace_id_not_null EXPECT (workspace_id IS NOT NULL),
+  CONSTRAINT dq_job_id_not_null EXPECT (job_id IS NOT NULL),
+  CONSTRAINT dq_job_run_id_not_null EXPECT (job_run_id IS NOT NULL),
+
+  -- DBU/Cost 집계 정합성
+  CONSTRAINT dq_total_dbus_non_negative EXPECT (total_dbus >= 0),
+  CONSTRAINT dq_total_cost_non_negative EXPECT (total_cost_usd >= 0),
+  CONSTRAINT dq_cost_requires_dbus EXPECT (total_cost_usd = 0 OR total_dbus > 0),
+
+  -- Duration 정합성
+  CONSTRAINT dq_duration_non_negative EXPECT (run_duration_minutes IS NULL OR run_duration_minutes >= 0),
+  CONSTRAINT dq_run_start_time_not_null EXPECT (run_start_time IS NOT NULL),
+
+  -- Serverless/Classic 구분
+  CONSTRAINT dq_classic_has_cluster EXPECT (is_serverless = true OR cluster_id IS NOT NULL)
+)
 AS
 SELECT
   cjc.workspace_id,
@@ -429,19 +541,6 @@ SELECT
     COALESCE(tr.period_end_time, jrt.period_end_time))                   AS run_duration_minutes,
   tr.task_count,
 
-  COUNT(DISTINCT iu.instance_id)             AS instance_count,
-  ROUND(AVG(iu.avg_cpu_util), 2)             AS avg_cpu_util,
-  ROUND(AVG(iu.median_cpu_util), 2)          AS median_cpu_util,
-  ROUND(MAX(iu.max_cpu_util), 2)             AS max_cpu_util,
-  ROUND(AVG(iu.stddev_cpu_util), 2)          AS avg_stddev_cpu,
-  ROUND(AVG(iu.avg_cpu_wait), 2)             AS avg_cpu_wait,
-  ROUND(AVG(iu.avg_mem_util), 2)             AS avg_mem_util,
-  ROUND(AVG(iu.median_mem_util), 2)          AS median_mem_util,
-  ROUND(MAX(iu.max_mem_util), 2)             AS max_mem_util,
-  ROUND(AVG(iu.stddev_mem_util), 2)          AS avg_stddev_mem,
-  ROUND(AVG(iu.avg_net_mb_rec_minute), 2)    AS avg_net_mb_rec_minute,
-  ROUND(AVG(iu.avg_net_mb_sent_minute), 2)   AS avg_net_mb_sent_minute,
-
   cjc.total_dbus,
   cjc.total_cost_usd
 
@@ -465,21 +564,6 @@ LEFT JOIN LIVE.job_run_timeline_v jrt
   ON  cjc.job_id       = jrt.job_id
   AND cjc.job_run_id   = jrt.job_run_id
   AND cjc.workspace_id = jrt.workspace_id
-
-LEFT JOIN LIVE.instance_utilization_v iu
-  ON  cjc.cluster_id   = iu.cluster_id
-  AND cjc.workspace_id = iu.workspace_id
-
-GROUP BY
-  cjc.workspace_id, cjc.cluster_id, cjc.is_serverless,
-  cc.cluster_name, cc.cluster_source, cc.owned_by, cc.worker_node_type,
-  cc.worker_count, cc.min_autoscale_workers, cc.max_autoscale_workers,
-  cc.dbr_version, cc.policy_id,
-  cjc.job_id, j.name, j.run_as, j.creator_id,
-  cjc.job_run_id,
-  tr.period_start_time, tr.period_end_time, tr.task_count,
-  jrt.period_start_time, jrt.period_end_time,
-  cjc.total_dbus, cjc.total_cost_usd
 ;
 
 
@@ -494,7 +578,43 @@ GROUP BY
 -- =================================================================
 
 CREATE OR REFRESH MATERIALIZED VIEW all_purpose_cluster_sizing_mv
+(
+  -- Sanity: All-Purpose MV에 데이터가 존재해야 함
+  CONSTRAINT dq_cluster_id_not_null EXPECT (cluster_id IS NOT NULL),
+  CONSTRAINT dq_cluster_source_is_ap EXPECT (cluster_source IN ('UI', 'API')),
+
+  -- DBU/Cost 정합성
+  CONSTRAINT dq_total_dbus_non_negative EXPECT (total_dbus >= 0),
+  CONSTRAINT dq_total_cost_non_negative EXPECT (total_cost_usd >= 0),
+  CONSTRAINT dq_cost_requires_dbus EXPECT (total_cost_usd = 0 OR total_dbus > 0),
+
+  -- Duration 정합성
+  CONSTRAINT dq_avg_duration_non_negative EXPECT (avg_run_duration_minutes IS NULL OR avg_run_duration_minutes >= 0),
+
+  -- Sizing recommendation 유효값
+  CONSTRAINT dq_valid_sizing EXPECT (sizing_recommendation IN (
+    'BURST_PATTERN', 'DEFINITE_DOWNSIZE', 'LIKELY_DOWNSIZE',
+    'CONSIDER_UPSIZE', 'IO_BOTTLENECK', 'APPROPRIATE'
+  ))
+)
 AS
+WITH cluster_util AS (
+  -- cluster 단위 utilization 집계 (instance_utilization_v에서 직접)
+  SELECT
+    workspace_id, cluster_id,
+    COUNT(DISTINCT instance_id)                     AS instance_count,
+    ROUND(AVG(avg_cpu_util), 2)                     AS avg_cpu_util,
+    ROUND(AVG(median_cpu_util), 2)                  AS median_cpu_util,
+    ROUND(MAX(max_cpu_util), 2)                     AS peak_cpu_util,
+    ROUND(AVG(stddev_cpu_util), 2)                  AS avg_stddev_cpu,
+    ROUND(AVG(avg_cpu_wait), 2)                     AS avg_cpu_wait,
+    ROUND(AVG(avg_mem_util), 2)                     AS avg_mem_util,
+    ROUND(AVG(median_mem_util), 2)                  AS median_mem_util,
+    ROUND(MAX(max_mem_util), 2)                     AS peak_mem_util,
+    ROUND(AVG(stddev_mem_util), 2)                  AS avg_stddev_mem
+  FROM LIVE.instance_utilization_v
+  GROUP BY workspace_id, cluster_id
+)
 SELECT
   cjc.workspace_id,
   cjc.cluster_id,
@@ -514,68 +634,66 @@ SELECT
   ROUND(AVG(cjc.run_duration_minutes), 2)                     AS avg_run_duration_minutes,
   ROUND(STDDEV(cjc.run_duration_minutes), 2)                  AS stddev_run_duration_minutes,
 
-  ROUND(AVG(cjc.avg_cpu_util), 2)                             AS avg_cpu_util,
-  ROUND(AVG(cjc.median_cpu_util), 2)                          AS median_cpu_util,
-  ROUND(PERCENTILE_APPROX(cjc.avg_cpu_util, 0.95), 2)        AS p95_cpu_util,
-  ROUND(MAX(cjc.max_cpu_util), 2)                             AS peak_cpu_util,
-  ROUND(AVG(cjc.avg_stddev_cpu), 2)                           AS avg_stddev_cpu,
-  ROUND(AVG(cjc.avg_mem_util), 2)                             AS avg_mem_util,
-  ROUND(AVG(cjc.median_mem_util), 2)                          AS median_mem_util,
-  ROUND(PERCENTILE_APPROX(cjc.avg_mem_util, 0.95), 2)        AS p95_mem_util,
-  ROUND(MAX(cjc.max_mem_util), 2)                             AS peak_mem_util,
-  ROUND(AVG(cjc.avg_stddev_mem), 2)                           AS avg_stddev_mem,
-  ROUND(AVG(cjc.avg_cpu_wait), 2)                             AS avg_cpu_wait,
-  ROUND(AVG(cjc.instance_count), 2)                           AS avg_instance_count,
+  -- utilization: cluster 단위 직접 집계 (1:1 JOIN)
+  cu.avg_cpu_util,
+  cu.median_cpu_util,
+  cu.peak_cpu_util                                            AS p95_cpu_util,
+  cu.peak_cpu_util,
+  cu.avg_stddev_cpu,
+  cu.avg_mem_util,
+  cu.median_mem_util,
+  cu.peak_mem_util                                            AS p95_mem_util,
+  cu.peak_mem_util,
+  cu.avg_stddev_mem,
+  cu.avg_cpu_wait,
+  COALESCE(cu.instance_count, 0)                              AS avg_instance_count,
 
   ROUND(SUM(cjc.total_dbus), 4)                               AS total_dbus,
   ROUND(SUM(cjc.total_cost_usd), 2)                           AS total_cost_usd,
 
   CASE
     WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-     AND AVG(cjc.median_cpu_util) < 30
-     AND AVG(cjc.median_mem_util) < 40
-     AND (AVG(cjc.avg_stddev_cpu) > 20 OR MAX(cjc.max_cpu_util) > 80
-      OR  AVG(cjc.avg_stddev_mem) > 20 OR MAX(cjc.max_mem_util) > 80)
+     AND cu.median_cpu_util < 30
+     AND cu.median_mem_util < 40
+     AND (cu.avg_stddev_cpu > 20 OR cu.peak_cpu_util > 80
+      OR  cu.avg_stddev_mem > 20 OR cu.peak_mem_util > 80)
       THEN 'BURST_PATTERN'
     WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-     AND PERCENTILE_APPROX(cjc.avg_cpu_util, 0.95) < 20
-     AND PERCENTILE_APPROX(cjc.avg_mem_util, 0.95) < 30
-     AND AVG(cjc.median_cpu_util) < 15
-     AND AVG(cjc.avg_stddev_cpu) < 15
+     AND cu.avg_cpu_util < 20
+     AND cu.avg_mem_util < 30
+     AND cu.median_cpu_util < 15
+     AND cu.avg_stddev_cpu < 15
       THEN 'DEFINITE_DOWNSIZE'
     WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-     AND AVG(cjc.avg_cpu_util) < 30 AND AVG(cjc.avg_mem_util) < 40
-     AND AVG(cjc.median_cpu_util) < 25 AND AVG(cjc.median_mem_util) < 35
+     AND cu.avg_cpu_util < 30 AND cu.avg_mem_util < 40
+     AND cu.median_cpu_util < 25 AND cu.median_mem_util < 35
       THEN 'LIKELY_DOWNSIZE'
     WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-     AND (PERCENTILE_APPROX(cjc.avg_cpu_util, 0.95) > 85
-      OR  PERCENTILE_APPROX(cjc.avg_mem_util, 0.95) > 85)
+     AND (cu.peak_cpu_util > 85 OR cu.peak_mem_util > 85)
       THEN 'CONSIDER_UPSIZE'
-    WHEN AVG(cjc.avg_cpu_wait) > 10
+    WHEN cu.avg_cpu_wait > 10
       THEN 'IO_BOTTLENECK'
     ELSE 'APPROPRIATE'
   END AS sizing_recommendation,
 
   CASE
     WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-     AND AVG(cjc.median_cpu_util) < 30 AND AVG(cjc.median_mem_util) < 40
-     AND (AVG(cjc.avg_stddev_cpu) > 20 OR MAX(cjc.max_cpu_util) > 80
-      OR  AVG(cjc.avg_stddev_mem) > 20 OR MAX(cjc.max_mem_util) > 80)
+     AND cu.median_cpu_util < 30 AND cu.median_mem_util < 40
+     AND (cu.avg_stddev_cpu > 20 OR cu.peak_cpu_util > 80
+      OR  cu.avg_stddev_mem > 20 OR cu.peak_mem_util > 80)
       THEN 'Burst 패턴 감지: median은 낮지만 순간 부하가 높아 현재 크기 유지 권고. Autoscaling 활용 검토.'
     WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-     AND PERCENTILE_APPROX(cjc.avg_cpu_util, 0.95) < 20
-     AND PERCENTILE_APPROX(cjc.avg_mem_util, 0.95) < 30
-     AND AVG(cjc.median_cpu_util) < 15 AND AVG(cjc.avg_stddev_cpu) < 15
+     AND cu.avg_cpu_util < 20 AND cu.avg_mem_util < 30
+     AND cu.median_cpu_util < 15 AND cu.avg_stddev_cpu < 15
       THEN '워커 수 50% 감소 또는 더 작은 인스턴스 타입으로 전환 강력 권고. median/P95/분산 모두 매우 낮음.'
     WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-     AND AVG(cjc.avg_cpu_util) < 30 AND AVG(cjc.avg_mem_util) < 40
-     AND AVG(cjc.median_cpu_util) < 25 AND AVG(cjc.median_mem_util) < 35
+     AND cu.avg_cpu_util < 30 AND cu.avg_mem_util < 40
+     AND cu.median_cpu_util < 25 AND cu.median_mem_util < 35
       THEN '워커 수 30% 감소 또는 인스턴스 타입 축소 검토. 평균·median 활용률이 지속적으로 낮음.'
     WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-     AND (PERCENTILE_APPROX(cjc.avg_cpu_util, 0.95) > 85
-      OR  PERCENTILE_APPROX(cjc.avg_mem_util, 0.95) > 85)
+     AND (cu.peak_cpu_util > 85 OR cu.peak_mem_util > 85)
       THEN '리소스 한계 근접. 워커 추가 또는 더 큰 인스턴스 타입 검토 필요.'
-    WHEN AVG(cjc.avg_cpu_wait) > 10
+    WHEN cu.avg_cpu_wait > 10
       THEN 'I/O 병목 감지. 스토리지 최적화 또는 EBS 성능 개선 권고.'
     ELSE '현재 구성 적절.'
   END AS recommendation_detail,
@@ -583,24 +701,26 @@ SELECT
   ROUND(
     CASE
       WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-       AND AVG(cjc.median_cpu_util) < 30 AND AVG(cjc.median_mem_util) < 40
-       AND (AVG(cjc.avg_stddev_cpu) > 20 OR MAX(cjc.max_cpu_util) > 80
-        OR  AVG(cjc.avg_stddev_mem) > 20 OR MAX(cjc.max_mem_util) > 80)
+       AND cu.median_cpu_util < 30 AND cu.median_mem_util < 40
+       AND (cu.avg_stddev_cpu > 20 OR cu.peak_cpu_util > 80
+        OR  cu.avg_stddev_mem > 20 OR cu.peak_mem_util > 80)
         THEN 0
       WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-       AND PERCENTILE_APPROX(cjc.avg_cpu_util, 0.95) < 20
-       AND PERCENTILE_APPROX(cjc.avg_mem_util, 0.95) < 30
-       AND AVG(cjc.median_cpu_util) < 15 AND AVG(cjc.avg_stddev_cpu) < 15
+       AND cu.avg_cpu_util < 20 AND cu.avg_mem_util < 30
+       AND cu.median_cpu_util < 15 AND cu.avg_stddev_cpu < 15
         THEN SUM(cjc.total_cost_usd) * 0.5
       WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-       AND AVG(cjc.avg_cpu_util) < 30 AND AVG(cjc.avg_mem_util) < 40
-       AND AVG(cjc.median_cpu_util) < 25 AND AVG(cjc.median_mem_util) < 35
+       AND cu.avg_cpu_util < 30 AND cu.avg_mem_util < 40
+       AND cu.median_cpu_util < 25 AND cu.median_mem_util < 35
         THEN SUM(cjc.total_cost_usd) * 0.3
       ELSE 0
     END, 2
   ) AS estimated_savings_usd
 
 FROM job_run_cost_analysis_mv cjc
+LEFT JOIN cluster_util cu
+  ON  cjc.cluster_id   = cu.cluster_id
+  AND cjc.workspace_id = cu.workspace_id
 WHERE cjc.is_serverless = false
   AND cjc.cluster_source IN ('UI', 'API')
 GROUP BY
@@ -608,7 +728,11 @@ GROUP BY
   cjc.owned_by, cjc.worker_node_type,
   cjc.configured_workers, cjc.min_autoscale_workers, cjc.max_autoscale_workers,
   cjc.dbr_version, cjc.policy_id,
-  CAST(cjc.run_start_time AS DATE)
+  CAST(cjc.run_start_time AS DATE),
+  cu.avg_cpu_util, cu.median_cpu_util, cu.peak_cpu_util,
+  cu.avg_stddev_cpu, cu.avg_cpu_wait,
+  cu.avg_mem_util, cu.median_mem_util, cu.peak_mem_util,
+  cu.avg_stddev_mem, cu.instance_count
 ;
 
 
@@ -621,7 +745,42 @@ GROUP BY
 -- =================================================================
 
 CREATE OR REFRESH MATERIALIZED VIEW job_compute_sizing_mv
+(
+  -- Sanity: Job Compute 필수 키
+  CONSTRAINT dq_job_id_not_null EXPECT (job_id IS NOT NULL),
+  CONSTRAINT dq_cluster_source_is_job EXPECT (cluster_source = 'JOB'),
+
+  -- DBU/Cost 정합성
+  CONSTRAINT dq_total_dbus_non_negative EXPECT (total_dbus >= 0),
+  CONSTRAINT dq_total_cost_non_negative EXPECT (total_cost_usd >= 0),
+  CONSTRAINT dq_cost_requires_dbus EXPECT (total_cost_usd = 0 OR total_dbus > 0),
+
+  -- Duration 정합성
+  CONSTRAINT dq_avg_duration_non_negative EXPECT (avg_run_duration_minutes IS NULL OR avg_run_duration_minutes >= 0),
+
+  -- Sizing recommendation 유효값
+  CONSTRAINT dq_valid_sizing EXPECT (sizing_recommendation IN (
+    'BURST_PATTERN', 'DEFINITE_DOWNSIZE', 'LIKELY_DOWNSIZE',
+    'CONSIDER_UPSIZE', 'IO_BOTTLENECK', 'APPROPRIATE'
+  ))
+)
 AS
+WITH cluster_util AS (
+  SELECT
+    workspace_id, cluster_id,
+    COUNT(DISTINCT instance_id)                     AS instance_count,
+    ROUND(AVG(avg_cpu_util), 2)                     AS avg_cpu_util,
+    ROUND(AVG(median_cpu_util), 2)                  AS median_cpu_util,
+    ROUND(MAX(max_cpu_util), 2)                     AS peak_cpu_util,
+    ROUND(AVG(stddev_cpu_util), 2)                  AS avg_stddev_cpu,
+    ROUND(AVG(avg_cpu_wait), 2)                     AS avg_cpu_wait,
+    ROUND(AVG(avg_mem_util), 2)                     AS avg_mem_util,
+    ROUND(AVG(median_mem_util), 2)                  AS median_mem_util,
+    ROUND(MAX(max_mem_util), 2)                     AS peak_mem_util,
+    ROUND(AVG(stddev_mem_util), 2)                  AS avg_stddev_mem
+  FROM LIVE.instance_utilization_v
+  GROUP BY workspace_id, cluster_id
+)
 SELECT
   cjc.workspace_id,
   cjc.job_id,
@@ -642,68 +801,65 @@ SELECT
   ROUND(AVG(cjc.run_duration_minutes), 2)                     AS avg_run_duration_minutes,
   ROUND(STDDEV(cjc.run_duration_minutes), 2)                  AS stddev_run_duration_minutes,
 
-  ROUND(AVG(cjc.avg_cpu_util), 2)                             AS avg_cpu_util,
-  ROUND(AVG(cjc.median_cpu_util), 2)                          AS median_cpu_util,
-  ROUND(PERCENTILE_APPROX(cjc.avg_cpu_util, 0.95), 2)        AS p95_cpu_util,
-  ROUND(MAX(cjc.max_cpu_util), 2)                             AS peak_cpu_util,
-  ROUND(AVG(cjc.avg_stddev_cpu), 2)                           AS avg_stddev_cpu,
-  ROUND(AVG(cjc.avg_mem_util), 2)                             AS avg_mem_util,
-  ROUND(AVG(cjc.median_mem_util), 2)                          AS median_mem_util,
-  ROUND(PERCENTILE_APPROX(cjc.avg_mem_util, 0.95), 2)        AS p95_mem_util,
-  ROUND(MAX(cjc.max_mem_util), 2)                             AS peak_mem_util,
-  ROUND(AVG(cjc.avg_stddev_mem), 2)                           AS avg_stddev_mem,
-  ROUND(AVG(cjc.avg_cpu_wait), 2)                             AS avg_cpu_wait,
-  ROUND(AVG(cjc.instance_count), 2)                           AS avg_instance_count,
+  cu.avg_cpu_util,
+  cu.median_cpu_util,
+  cu.peak_cpu_util                                            AS p95_cpu_util,
+  cu.peak_cpu_util,
+  cu.avg_stddev_cpu,
+  cu.avg_mem_util,
+  cu.median_mem_util,
+  cu.peak_mem_util                                            AS p95_mem_util,
+  cu.peak_mem_util,
+  cu.avg_stddev_mem,
+  cu.avg_cpu_wait,
+  COALESCE(cu.instance_count, 0)                              AS avg_instance_count,
 
   ROUND(SUM(cjc.total_dbus), 4)                               AS total_dbus,
   ROUND(SUM(cjc.total_cost_usd), 2)                           AS total_cost_usd,
 
   CASE
     WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-     AND AVG(cjc.median_cpu_util) < 30
-     AND AVG(cjc.median_mem_util) < 40
-     AND (AVG(cjc.avg_stddev_cpu) > 20 OR MAX(cjc.max_cpu_util) > 80
-      OR  AVG(cjc.avg_stddev_mem) > 20 OR MAX(cjc.max_mem_util) > 80)
+     AND cu.median_cpu_util < 30
+     AND cu.median_mem_util < 40
+     AND (cu.avg_stddev_cpu > 20 OR cu.peak_cpu_util > 80
+      OR  cu.avg_stddev_mem > 20 OR cu.peak_mem_util > 80)
       THEN 'BURST_PATTERN'
     WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-     AND PERCENTILE_APPROX(cjc.avg_cpu_util, 0.95) < 20
-     AND PERCENTILE_APPROX(cjc.avg_mem_util, 0.95) < 30
-     AND AVG(cjc.median_cpu_util) < 15
-     AND AVG(cjc.avg_stddev_cpu) < 15
+     AND cu.avg_cpu_util < 20
+     AND cu.avg_mem_util < 30
+     AND cu.median_cpu_util < 15
+     AND cu.avg_stddev_cpu < 15
       THEN 'DEFINITE_DOWNSIZE'
     WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-     AND AVG(cjc.avg_cpu_util) < 30 AND AVG(cjc.avg_mem_util) < 40
-     AND AVG(cjc.median_cpu_util) < 25 AND AVG(cjc.median_mem_util) < 35
+     AND cu.avg_cpu_util < 30 AND cu.avg_mem_util < 40
+     AND cu.median_cpu_util < 25 AND cu.median_mem_util < 35
       THEN 'LIKELY_DOWNSIZE'
     WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-     AND (PERCENTILE_APPROX(cjc.avg_cpu_util, 0.95) > 85
-      OR  PERCENTILE_APPROX(cjc.avg_mem_util, 0.95) > 85)
+     AND (cu.peak_cpu_util > 85 OR cu.peak_mem_util > 85)
       THEN 'CONSIDER_UPSIZE'
-    WHEN AVG(cjc.avg_cpu_wait) > 10
+    WHEN cu.avg_cpu_wait > 10
       THEN 'IO_BOTTLENECK'
     ELSE 'APPROPRIATE'
   END AS sizing_recommendation,
 
   CASE
     WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-     AND AVG(cjc.median_cpu_util) < 30 AND AVG(cjc.median_mem_util) < 40
-     AND (AVG(cjc.avg_stddev_cpu) > 20 OR MAX(cjc.max_cpu_util) > 80
-      OR  AVG(cjc.avg_stddev_mem) > 20 OR MAX(cjc.max_mem_util) > 80)
+     AND cu.median_cpu_util < 30 AND cu.median_mem_util < 40
+     AND (cu.avg_stddev_cpu > 20 OR cu.peak_cpu_util > 80
+      OR  cu.avg_stddev_mem > 20 OR cu.peak_mem_util > 80)
       THEN 'Burst 패턴 감지: median은 낮지만 순간 부하가 높아 현재 크기 유지 권고. Autoscaling 활용 검토.'
     WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-     AND PERCENTILE_APPROX(cjc.avg_cpu_util, 0.95) < 20
-     AND PERCENTILE_APPROX(cjc.avg_mem_util, 0.95) < 30
-     AND AVG(cjc.median_cpu_util) < 15 AND AVG(cjc.avg_stddev_cpu) < 15
+     AND cu.avg_cpu_util < 20 AND cu.avg_mem_util < 30
+     AND cu.median_cpu_util < 15 AND cu.avg_stddev_cpu < 15
       THEN '워커 수 50% 감소 또는 더 작은 인스턴스 타입으로 전환 강력 권고. median/P95/분산 모두 매우 낮음.'
     WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-     AND AVG(cjc.avg_cpu_util) < 30 AND AVG(cjc.avg_mem_util) < 40
-     AND AVG(cjc.median_cpu_util) < 25 AND AVG(cjc.median_mem_util) < 35
+     AND cu.avg_cpu_util < 30 AND cu.avg_mem_util < 40
+     AND cu.median_cpu_util < 25 AND cu.median_mem_util < 35
       THEN '워커 수 30% 감소 또는 인스턴스 타입 축소 검토. 평균·median 활용률이 지속적으로 낮음.'
     WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-     AND (PERCENTILE_APPROX(cjc.avg_cpu_util, 0.95) > 85
-      OR  PERCENTILE_APPROX(cjc.avg_mem_util, 0.95) > 85)
+     AND (cu.peak_cpu_util > 85 OR cu.peak_mem_util > 85)
       THEN '리소스 한계 근접. 워커 추가 또는 더 큰 인스턴스 타입 검토 필요.'
-    WHEN AVG(cjc.avg_cpu_wait) > 10
+    WHEN cu.avg_cpu_wait > 10
       THEN 'I/O 병목 감지. 스토리지 최적화 또는 EBS 성능 개선 권고.'
     ELSE '현재 구성 적절.'
   END AS recommendation_detail,
@@ -711,24 +867,26 @@ SELECT
   ROUND(
     CASE
       WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-       AND AVG(cjc.median_cpu_util) < 30 AND AVG(cjc.median_mem_util) < 40
-       AND (AVG(cjc.avg_stddev_cpu) > 20 OR MAX(cjc.max_cpu_util) > 80
-        OR  AVG(cjc.avg_stddev_mem) > 20 OR MAX(cjc.max_mem_util) > 80)
+       AND cu.median_cpu_util < 30 AND cu.median_mem_util < 40
+       AND (cu.avg_stddev_cpu > 20 OR cu.peak_cpu_util > 80
+        OR  cu.avg_stddev_mem > 20 OR cu.peak_mem_util > 80)
         THEN 0
       WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-       AND PERCENTILE_APPROX(cjc.avg_cpu_util, 0.95) < 20
-       AND PERCENTILE_APPROX(cjc.avg_mem_util, 0.95) < 30
-       AND AVG(cjc.median_cpu_util) < 15 AND AVG(cjc.avg_stddev_cpu) < 15
+       AND cu.avg_cpu_util < 20 AND cu.avg_mem_util < 30
+       AND cu.median_cpu_util < 15 AND cu.avg_stddev_cpu < 15
         THEN SUM(cjc.total_cost_usd) * 0.5
       WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
-       AND AVG(cjc.avg_cpu_util) < 30 AND AVG(cjc.avg_mem_util) < 40
-       AND AVG(cjc.median_cpu_util) < 25 AND AVG(cjc.median_mem_util) < 35
+       AND cu.avg_cpu_util < 30 AND cu.avg_mem_util < 40
+       AND cu.median_cpu_util < 25 AND cu.median_mem_util < 35
         THEN SUM(cjc.total_cost_usd) * 0.3
       ELSE 0
     END, 2
   ) AS estimated_savings_usd
 
 FROM job_run_cost_analysis_mv cjc
+LEFT JOIN cluster_util cu
+  ON  cjc.cluster_id   = cu.cluster_id
+  AND cjc.workspace_id = cu.workspace_id
 WHERE cjc.is_serverless = false
   AND cjc.cluster_source = 'JOB'
 GROUP BY
@@ -737,7 +895,11 @@ GROUP BY
   cjc.owned_by, cjc.worker_node_type,
   cjc.configured_workers, cjc.min_autoscale_workers, cjc.max_autoscale_workers,
   cjc.dbr_version, cjc.policy_id,
-  CAST(cjc.run_start_time AS DATE)
+  CAST(cjc.run_start_time AS DATE),
+  cu.avg_cpu_util, cu.median_cpu_util, cu.peak_cpu_util,
+  cu.avg_stddev_cpu, cu.avg_cpu_wait,
+  cu.avg_mem_util, cu.median_mem_util, cu.peak_mem_util,
+  cu.avg_stddev_mem, cu.instance_count
 ;
 
 
@@ -751,6 +913,19 @@ GROUP BY
 -- =================================================================
 
 CREATE OR REFRESH MATERIALIZED VIEW right_sizing_analysis_mv
+(
+  -- Sanity
+  CONSTRAINT dq_cluster_id_not_null EXPECT (cluster_id IS NOT NULL),
+  CONSTRAINT dq_compute_type_valid EXPECT (compute_type IN ('All-Purpose', 'Job Compute')),
+
+  -- DBU/Cost 정합성
+  CONSTRAINT dq_total_dbus_non_negative EXPECT (total_dbus >= 0),
+  CONSTRAINT dq_total_cost_non_negative EXPECT (total_cost_usd >= 0),
+
+  -- All-Purpose는 job_id NULL, Job Compute는 job_count NULL
+  CONSTRAINT dq_ap_job_id_null EXPECT (compute_type != 'All-Purpose' OR job_id IS NULL),
+  CONSTRAINT dq_jc_job_count_null EXPECT (compute_type != 'Job Compute' OR job_count IS NULL)
+)
 AS
 -- All-Purpose: per-cluster, 잡 특정 컬럼은 NULL
 SELECT

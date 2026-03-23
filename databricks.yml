@@ -17,12 +17,6 @@ variables:
   workspace_id:
     description: "분석 대상 워크스페이스 ID"
     default: "984752964297111"
-  start_date:
-    description: "분석 시작일 (yyyy-MM-dd 형식)"
-    default: "2025-01-01"
-  end_date:
-    description: "분석 종료일 (yyyy-MM-dd 형식)"
-    default: "2026-03-22"
   warehouse_id:
     description: "대시보드용 SQL Warehouse ID"
     lookup:

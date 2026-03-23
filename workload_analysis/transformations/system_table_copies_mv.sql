@@ -52,7 +52,20 @@ WHERE workspace_id = '${workspace_id}';
 
 
 -- =================================================================
--- 4. jobs  [MATERIALIZED VIEW]
+-- 4. job_run_timeline  [MATERIALIZED VIEW]
+-- =================================================================
+-- system.lakeflow.job_run_timeline에서 워크스페이스 필터링.
+-- =================================================================
+
+CREATE OR REFRESH MATERIALIZED VIEW job_run_timeline
+AS
+SELECT *
+FROM system.lakeflow.job_run_timeline
+WHERE workspace_id = '${workspace_id}';
+
+
+-- =================================================================
+-- 5. jobs  [MATERIALIZED VIEW]
 -- =================================================================
 -- system.lakeflow.jobs에서 워크스페이스 필터링.
 -- =================================================================
@@ -65,7 +78,7 @@ WHERE workspace_id = '${workspace_id}';
 
 
 -- =================================================================
--- 5. usage  [MATERIALIZED VIEW]
+-- 6. usage  [MATERIALIZED VIEW]
 -- =================================================================
 -- system.billing.usage에서 워크스페이스 필터링.
 -- =================================================================
@@ -78,7 +91,7 @@ WHERE workspace_id = '${workspace_id}';
 
 
 -- =================================================================
--- 6. list_prices  [MATERIALIZED VIEW]
+-- 7. list_prices  [MATERIALIZED VIEW]
 -- =================================================================
 -- system.billing.list_prices (워크스페이스 무관, 전체 복사).
 -- =================================================================

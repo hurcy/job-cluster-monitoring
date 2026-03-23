@@ -355,7 +355,7 @@
       "name": "ds-ap-kpi",
       "displayName": "All-Purpose · Cluster KPI",
       "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, cluster_id, job_id, total_cost_usd FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') WHERE cluster_source = 'UI'"
+        "SELECT run_start_time, cluster_id, job_count, total_cost_usd FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.all_purpose_cluster_sizing_mv')"
       ],
       "parameters": [
         {
@@ -394,7 +394,7 @@
       "name": "ds-ap-cluster",
       "displayName": "All-Purpose · Cluster Sizing Detail",
       "queryLines": [
-        "SELECT cluster_id, cluster_name, owned_by, worker_node_type, COALESCE(CAST(configured_workers AS STRING), CONCAT(COALESCE(CAST(min_autoscale_workers AS STRING),'?'), '-', COALESCE(CAST(max_autoscale_workers AS STRING),'?'))) AS workers_config, COUNT(DISTINCT job_id) AS job_count, COUNT(DISTINCT job_run_id) AS run_count, ROUND(AVG(avg_cpu_util), 1) AS avg_cpu_util, ROUND(AVG(avg_mem_util), 1) AS avg_mem_util, ROUND(SUM(total_cost_usd), 2) AS total_cost_usd, DATE(MIN(run_start_time)) AS run_start_time, CASE WHEN COUNT(DISTINCT job_id) >= 3 AND (AVG(avg_cpu_util) IS NULL OR AVG(avg_cpu_util) < 30) AND (AVG(avg_mem_util) IS NULL OR AVG(avg_mem_util) < 40) THEN 'LIKELY_DOWNSIZE' WHEN COUNT(DISTINCT job_id) >= 2 THEN 'CONSIDER_JOB_COMPUTE' WHEN COUNT(DISTINCT job_id) = 1 AND (AVG(avg_cpu_util) IS NULL OR AVG(avg_cpu_util) < 30) THEN 'LIKELY_DOWNSIZE' ELSE 'APPROPRIATE' END AS sizing_signal, CASE WHEN COUNT(DISTINCT job_id) >= 2 THEN CONCAT(CAST(COUNT(DISTINCT job_id) AS STRING), '개 Job 공유 → Job Compute 격리 시 개별 sizing 최적화 가능. Downsize 권고.') WHEN COUNT(DISTINCT job_id) = 1 AND (AVG(avg_cpu_util) IS NULL OR AVG(avg_cpu_util) < 30) THEN '단일 Job이 All-Purpose 클러스터 점유. Job Compute 전환 권고.' ELSE '현재 구성 적절.' END AS job_isolation_recommendation FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') WHERE cluster_source = 'UI' GROUP BY cluster_id, cluster_name, owned_by, worker_node_type, configured_workers, min_autoscale_workers, max_autoscale_workers ORDER BY total_cost_usd DESC"
+        "SELECT cluster_id, cluster_name, owned_by, worker_node_type, COALESCE(CAST(configured_workers AS STRING), CONCAT(COALESCE(CAST(min_autoscale_workers AS STRING),'?'), '-', COALESCE(CAST(max_autoscale_workers AS STRING),'?'))) AS workers_config, job_count, run_count, ROUND(avg_cpu_util, 1) AS avg_cpu_util, ROUND(avg_mem_util, 1) AS avg_mem_util, total_cost_usd, run_start_time, sizing_recommendation AS sizing_signal, recommendation_detail AS job_isolation_recommendation FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.all_purpose_cluster_sizing_mv') ORDER BY total_cost_usd DESC"
       ],
       "parameters": [
         {
@@ -433,7 +433,7 @@
       "name": "ds-ap-signal-dist",
       "displayName": "All-Purpose · Sizing Signal Distribution",
       "queryLines": [
-        "WITH ap AS ( SELECT cluster_id, COUNT(DISTINCT job_id) AS job_count, AVG(avg_cpu_util) AS avg_cpu, AVG(avg_mem_util) AS avg_mem, MIN(run_start_time) AS min_run_start FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') WHERE cluster_source = 'UI' GROUP BY cluster_id ) SELECT CASE WHEN job_count >= 3 AND (avg_cpu IS NULL OR avg_cpu < 30) AND (avg_mem IS NULL OR avg_mem < 40) THEN 'LIKELY_DOWNSIZE' WHEN job_count >= 2 THEN 'CONSIDER_JOB_COMPUTE' WHEN job_count = 1 AND (avg_cpu IS NULL OR avg_cpu < 30) THEN 'LIKELY_DOWNSIZE' ELSE 'APPROPRIATE' END AS sizing_signal, COUNT(*) AS cluster_count, DATE(MIN(min_run_start)) AS run_start_time FROM ap GROUP BY 1"
+        "SELECT sizing_recommendation AS sizing_signal, COUNT(*) AS cluster_count, MIN(run_start_time) AS run_start_time FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.all_purpose_cluster_sizing_mv') GROUP BY sizing_recommendation"
       ],
       "parameters": [
         {
@@ -1966,8 +1966,8 @@
           },
           "position": {
             "x": 0,
-            "y": 2,
-            "width": 2,
+            "y": 0,
+            "width": 4,
             "height": 3
           }
         },
@@ -1978,11 +1978,11 @@
               {
                 "name": "main_query",
                 "query": {
-                  "datasetName": "ds-ap-kpi",
+                  "datasetName": "ds-ap-cluster",
                   "fields": [
                     {
-                      "name": "count(DISTINCT job_id)",
-                      "expression": "COUNT(DISTINCT `job_id`)"
+                      "name": "sum(job_count)",
+                      "expression": "SUM(`job_count`)"
                     }
                   ],
                   "disaggregated": false
@@ -1991,23 +1991,22 @@
             ],
             "spec": {
               "version": 2,
-              "widgetType": "counter",
-              "encodings": {
-                "value": {
-                  "fieldName": "count(DISTINCT job_id)",
-                  "displayName": "Jobs on All-Purpose"
-                }
-              },
               "frame": {
                 "showTitle": true,
                 "title": "Jobs on All-Purpose"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(job_count)"
+                }
               }
             }
           },
           "position": {
-            "x": 2,
-            "y": 2,
-            "width": 2,
+            "x": 4,
+            "y": 0,
+            "width": 4,
             "height": 3
           }
         },
@@ -2045,9 +2044,9 @@
             }
           },
           "position": {
-            "x": 4,
-            "y": 2,
-            "width": 2,
+            "x": 8,
+            "y": 0,
+            "width": 4,
             "height": 3
           }
         },
@@ -2058,15 +2057,15 @@
               {
                 "name": "main_query",
                 "query": {
-                  "datasetName": "ds-ap-signal-dist",
+                  "datasetName": "ds-ap-cluster",
                   "fields": [
                     {
                       "name": "sizing_signal",
                       "expression": "`sizing_signal`"
                     },
                     {
-                      "name": "sum(cluster_count)",
-                      "expression": "SUM(`cluster_count`)"
+                      "name": "countdistinct(cluster_id)",
+                      "expression": "COUNT(DISTINCT `cluster_id`)"
                     }
                   ],
                   "disaggregated": false
@@ -2075,25 +2074,9 @@
             ],
             "spec": {
               "version": 3,
-              "widgetType": "bar",
-              "encodings": {
-                "x": {
-                  "fieldName": "sizing_signal",
-                  "scale": {
-                    "type": "categorical"
-                  },
-                  "displayName": "Sizing Signal"
-                },
-                "y": {
-                  "fieldName": "sum(cluster_count)",
-                  "scale": {
-                    "type": "quantitative"
-                  },
-                  "displayName": "Cluster Count"
-                },
-                "label": {
-                  "show": true
-                }
+              "frame": {
+                "showTitle": true,
+                "title": "Cluster Sizing Signal Distribution"
               },
               "mark": {
                 "colors": [
@@ -2102,16 +2085,31 @@
                   "#00A972"
                 ]
               },
-              "frame": {
-                "showTitle": true,
-                "title": "Cluster Sizing Signal Distribution"
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sizing_signal",
+                  "displayName": "Sizing Signal",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "countdistinct(cluster_id)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
               }
             }
           },
           "position": {
             "x": 0,
-            "y": 5,
-            "width": 6,
+            "y": 3,
+            "width": 12,
             "height": 6
           }
         },
@@ -2276,8 +2274,8 @@
           },
           "position": {
             "x": 0,
-            "y": 11,
-            "width": 6,
+            "y": 9,
+            "width": 12,
             "height": 10
           }
         },
@@ -2382,13 +2380,14 @@
           },
           "position": {
             "x": 0,
-            "y": 21,
-            "width": 6,
+            "y": 19,
+            "width": 12,
             "height": 10
           }
         }
       ],
-      "pageType": "PAGE_TYPE_CANVAS"
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
     }
   ]
 }

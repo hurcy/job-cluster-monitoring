@@ -1,0 +1,31 @@
+resources:
+  jobs:
+    daily_mv_refresh:
+      name: "[${bundle.target}] Daily MV Refresh"
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"
+        timezone_id: "Asia/Seoul"
+      tasks:
+        - task_key: check_system_copies
+          condition_task:
+            op: EQUAL_TO
+            left: "{{job.parameters.include_system_copies}}"
+            right: "true"
+        - task_key: refresh_system_copies
+          depends_on:
+            - task_key: check_system_copies
+              outcome: "true"
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.system_table_copies.id}
+        - task_key: refresh_workload_analysis
+          depends_on:
+            - task_key: refresh_system_copies
+          run_if: AT_LEAST_ONE_SUCCESS
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.instance_workload_profiles.id}
+      parameters:
+        - name: include_system_copies
+          default: "false"
+      permissions:
+        - level: CAN_MANAGE_RUN
+          group_name: users
