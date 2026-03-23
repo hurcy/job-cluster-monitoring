@@ -4,7 +4,7 @@
       "name": "ds-kpi-classic",
       "displayName": "Overview · Classic Job Compute KPI",
       "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, job_id, total_cost_usd, estimated_savings_usd FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_compute_sizing_mv')"
+        "SELECT DATE(run_start_time) AS run_start_time, job_id, total_cost_usd, estimated_savings_usd FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') WHERE compute_type = 'Job Compute'"
       ],
       "parameters": [
         {
@@ -121,7 +121,7 @@
       "name": "ds-classic-sizing",
       "displayName": "Overview · Sizing Signal Distribution",
       "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, sizing_recommendation, COUNT(*) AS job_count, ROUND(SUM(total_cost_usd), 2) AS total_cost FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_compute_sizing_mv') GROUP BY DATE(run_start_time), sizing_recommendation ORDER BY job_count DESC"
+        "SELECT DATE(run_start_time) AS run_start_time, sizing_recommendation, COUNT(*) AS job_count, ROUND(SUM(total_cost_usd), 2) AS total_cost FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') WHERE compute_type = 'Job Compute' GROUP BY DATE(run_start_time), sizing_recommendation ORDER BY job_count DESC"
       ],
       "parameters": [
         {
@@ -160,7 +160,7 @@
       "name": "ds-cpu-dist",
       "displayName": "Overview · CPU Utilization Distribution",
       "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, CASE WHEN avg_cpu_util IS NULL THEN 'No Data' WHEN avg_cpu_util < 20 THEN '<20%' WHEN avg_cpu_util < 40 THEN '20-40%' WHEN avg_cpu_util < 60 THEN '40-60%' WHEN avg_cpu_util < 80 THEN '60-80%' ELSE '>80%' END AS cpu_range, COUNT(*) AS job_count FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_compute_sizing_mv') GROUP BY 1, 2 ORDER BY job_count DESC"
+        "SELECT DATE(run_start_time) AS run_start_time, CASE WHEN avg_cpu_util IS NULL THEN 'No Data' WHEN avg_cpu_util < 20 THEN '<20%' WHEN avg_cpu_util < 40 THEN '20-40%' WHEN avg_cpu_util < 60 THEN '40-60%' WHEN avg_cpu_util < 80 THEN '60-80%' ELSE '>80%' END AS cpu_range, COUNT(*) AS job_count FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') WHERE compute_type = 'Job Compute' GROUP BY 1, 2 ORDER BY job_count DESC"
       ],
       "parameters": [
         {
@@ -199,7 +199,7 @@
       "name": "ds-instance-type",
       "displayName": "Overview · Instance Type Cost Breakdown",
       "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, worker_node_type, ROUND(SUM(total_cost_usd), 2) AS total_cost, COUNT(*) AS job_count FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_compute_sizing_mv') WHERE worker_node_type IS NOT NULL GROUP BY DATE(run_start_time), worker_node_type ORDER BY total_cost DESC"
+        "SELECT DATE(run_start_time) AS run_start_time, worker_node_type, ROUND(SUM(total_cost_usd), 2) AS total_cost, COUNT(*) AS job_count FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') WHERE compute_type = 'Job Compute' AND worker_node_type IS NOT NULL GROUP BY DATE(run_start_time), worker_node_type ORDER BY total_cost DESC"
       ],
       "parameters": [
         {
@@ -238,7 +238,7 @@
       "name": "ds-job-detail",
       "displayName": "Classic · Job Recommendation Detail",
       "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, COALESCE(job_name, CONCAT('Job ', job_id)) AS job_name, sizing_recommendation, owned_by, worker_node_type, COALESCE(CAST(configured_workers AS STRING), CONCAT(CAST(min_autoscale_workers AS STRING), '-', CAST(max_autoscale_workers AS STRING))) AS workers_config, run_count, ROUND(avg_cpu_util, 1) AS avg_cpu_pct, ROUND(avg_mem_util, 1) AS avg_mem_pct, ROUND(total_cost_usd, 2) AS total_cost_usd, ROUND(estimated_savings_usd, 2) AS estimated_savings_usd, recommendation_detail FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_compute_sizing_mv') ORDER BY total_cost_usd DESC"
+        "SELECT DATE(run_start_time) AS run_start_time, COALESCE(job_name, CONCAT('Job ', job_id)) AS job_name, sizing_recommendation, owned_by, worker_node_type, COALESCE(CAST(configured_workers AS STRING), CONCAT(CAST(min_autoscale_workers AS STRING), '-', CAST(max_autoscale_workers AS STRING))) AS workers_config, run_count, ROUND(avg_cpu_util, 1) AS avg_cpu_pct, ROUND(avg_mem_util, 1) AS avg_mem_pct, ROUND(total_cost_usd, 2) AS total_cost_usd, ROUND(estimated_savings_usd, 2) AS estimated_savings_usd, recommendation_detail FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') WHERE compute_type = 'Job Compute' ORDER BY total_cost_usd DESC"
       ],
       "parameters": [
         {
