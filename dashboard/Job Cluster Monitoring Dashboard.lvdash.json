@@ -43,7 +43,7 @@
       "name": "ds-kpi-serverless",
       "displayName": "Overview · Serverless KPI",
       "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, job_id, total_cost_usd FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_profiles_mv') WHERE is_serverless = true"
+        "SELECT DATE(run_start_time) AS run_start_time, job_id, total_cost_usd FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') WHERE is_serverless = true"
       ],
       "parameters": [
         {
@@ -82,7 +82,7 @@
       "name": "ds-compute-compare",
       "displayName": "Overview · Compute Type Cost Comparison",
       "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, CASE WHEN is_serverless = true THEN 'Serverless' ELSE 'Classic' END AS compute_type, ROUND(SUM(total_cost_usd), 2) AS total_cost, COUNT(DISTINCT job_id) AS job_count FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_profiles_mv') GROUP BY DATE(run_start_time), CASE WHEN is_serverless = true THEN 'Serverless' ELSE 'Classic' END ORDER BY total_cost DESC"
+        "SELECT DATE(run_start_time) AS run_start_time, CASE WHEN is_serverless = true THEN 'Serverless' ELSE 'Classic' END AS compute_type, ROUND(SUM(total_cost_usd), 2) AS total_cost, COUNT(DISTINCT job_id) AS job_count FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') GROUP BY DATE(run_start_time), CASE WHEN is_serverless = true THEN 'Serverless' ELSE 'Classic' END ORDER BY total_cost DESC"
       ],
       "parameters": [
         {
@@ -277,7 +277,7 @@
       "name": "ds-srv-top",
       "displayName": "Serverless · Top Jobs by Cost",
       "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, COALESCE(job_name, CONCAT('Job ', job_id)) AS job_label, ROUND(SUM(total_cost_usd), 2) AS total_cost, COUNT(DISTINCT job_run_id) AS run_count FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_profiles_mv') WHERE is_serverless = true GROUP BY DATE(run_start_time), job_name, job_id ORDER BY total_cost DESC"
+        "SELECT DATE(run_start_time) AS run_start_time, COALESCE(job_name, CONCAT('Job ', job_id)) AS job_label, ROUND(SUM(total_cost_usd), 2) AS total_cost, COUNT(DISTINCT job_run_id) AS run_count FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') WHERE is_serverless = true GROUP BY DATE(run_start_time), job_name, job_id ORDER BY total_cost DESC"
       ],
       "parameters": [
         {
@@ -316,7 +316,7 @@
       "name": "ds-srv-detail",
       "displayName": "Serverless · Job Run Detail",
       "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, COALESCE(job_name, CONCAT('Job ', job_id)) AS job_label, COUNT(DISTINCT job_run_id) AS run_count, ROUND(AVG(run_duration_minutes), 1) AS avg_duration_min, ROUND(SUM(total_dbus), 2) AS total_dbus, ROUND(SUM(total_cost_usd), 2) AS total_cost FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_profiles_mv') WHERE is_serverless = true GROUP BY DATE(run_start_time), job_name, job_id ORDER BY total_cost DESC LIMIT 200"
+        "SELECT DATE(run_start_time) AS run_start_time, COALESCE(job_name, CONCAT('Job ', job_id)) AS job_label, COUNT(DISTINCT job_run_id) AS run_count, ROUND(AVG(run_duration_minutes), 1) AS avg_duration_min, ROUND(SUM(total_dbus), 2) AS total_dbus, ROUND(SUM(total_cost_usd), 2) AS total_cost FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') WHERE is_serverless = true GROUP BY DATE(run_start_time), job_name, job_id ORDER BY total_cost DESC LIMIT 200"
       ],
       "parameters": [
         {
@@ -355,7 +355,7 @@
       "name": "ds-ap-kpi",
       "displayName": "All-Purpose · Cluster KPI",
       "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, cluster_id, job_id, total_cost_usd FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_profiles_mv') WHERE cluster_source = 'UI'"
+        "SELECT DATE(run_start_time) AS run_start_time, cluster_id, job_id, total_cost_usd FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') WHERE cluster_source = 'UI'"
       ],
       "parameters": [
         {
@@ -394,7 +394,7 @@
       "name": "ds-ap-cluster",
       "displayName": "All-Purpose · Cluster Sizing Detail",
       "queryLines": [
-        "SELECT cluster_id, cluster_name, owned_by, worker_node_type, COALESCE(CAST(configured_workers AS STRING), CONCAT(COALESCE(CAST(min_autoscale_workers AS STRING),'?'), '-', COALESCE(CAST(max_autoscale_workers AS STRING),'?'))) AS workers_config, COUNT(DISTINCT job_id) AS job_count, COUNT(DISTINCT job_run_id) AS run_count, ROUND(AVG(avg_cpu_util), 1) AS avg_cpu_util, ROUND(AVG(avg_mem_util), 1) AS avg_mem_util, ROUND(SUM(total_cost_usd), 2) AS total_cost_usd, DATE(MIN(run_start_time)) AS run_start_time, CASE WHEN COUNT(DISTINCT job_id) >= 3 AND (AVG(avg_cpu_util) IS NULL OR AVG(avg_cpu_util) < 30) AND (AVG(avg_mem_util) IS NULL OR AVG(avg_mem_util) < 40) THEN 'LIKELY_DOWNSIZE' WHEN COUNT(DISTINCT job_id) >= 2 THEN 'CONSIDER_JOB_COMPUTE' WHEN COUNT(DISTINCT job_id) = 1 AND (AVG(avg_cpu_util) IS NULL OR AVG(avg_cpu_util) < 30) THEN 'LIKELY_DOWNSIZE' ELSE 'APPROPRIATE' END AS sizing_signal, CASE WHEN COUNT(DISTINCT job_id) >= 2 THEN CONCAT(CAST(COUNT(DISTINCT job_id) AS STRING), '개 Job 공유 → Job Compute 격리 시 개별 sizing 최적화 가능. Downsize 권고.') WHEN COUNT(DISTINCT job_id) = 1 AND (AVG(avg_cpu_util) IS NULL OR AVG(avg_cpu_util) < 30) THEN '단일 Job이 All-Purpose 클러스터 점유. Job Compute 전환 권고.' ELSE '현재 구성 적절.' END AS job_isolation_recommendation FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_profiles_mv') WHERE cluster_source = 'UI' GROUP BY cluster_id, cluster_name, owned_by, worker_node_type, configured_workers, min_autoscale_workers, max_autoscale_workers ORDER BY total_cost_usd DESC"
+        "SELECT cluster_id, cluster_name, owned_by, worker_node_type, COALESCE(CAST(configured_workers AS STRING), CONCAT(COALESCE(CAST(min_autoscale_workers AS STRING),'?'), '-', COALESCE(CAST(max_autoscale_workers AS STRING),'?'))) AS workers_config, COUNT(DISTINCT job_id) AS job_count, COUNT(DISTINCT job_run_id) AS run_count, ROUND(AVG(avg_cpu_util), 1) AS avg_cpu_util, ROUND(AVG(avg_mem_util), 1) AS avg_mem_util, ROUND(SUM(total_cost_usd), 2) AS total_cost_usd, DATE(MIN(run_start_time)) AS run_start_time, CASE WHEN COUNT(DISTINCT job_id) >= 3 AND (AVG(avg_cpu_util) IS NULL OR AVG(avg_cpu_util) < 30) AND (AVG(avg_mem_util) IS NULL OR AVG(avg_mem_util) < 40) THEN 'LIKELY_DOWNSIZE' WHEN COUNT(DISTINCT job_id) >= 2 THEN 'CONSIDER_JOB_COMPUTE' WHEN COUNT(DISTINCT job_id) = 1 AND (AVG(avg_cpu_util) IS NULL OR AVG(avg_cpu_util) < 30) THEN 'LIKELY_DOWNSIZE' ELSE 'APPROPRIATE' END AS sizing_signal, CASE WHEN COUNT(DISTINCT job_id) >= 2 THEN CONCAT(CAST(COUNT(DISTINCT job_id) AS STRING), '개 Job 공유 → Job Compute 격리 시 개별 sizing 최적화 가능. Downsize 권고.') WHEN COUNT(DISTINCT job_id) = 1 AND (AVG(avg_cpu_util) IS NULL OR AVG(avg_cpu_util) < 30) THEN '단일 Job이 All-Purpose 클러스터 점유. Job Compute 전환 권고.' ELSE '현재 구성 적절.' END AS job_isolation_recommendation FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') WHERE cluster_source = 'UI' GROUP BY cluster_id, cluster_name, owned_by, worker_node_type, configured_workers, min_autoscale_workers, max_autoscale_workers ORDER BY total_cost_usd DESC"
       ],
       "parameters": [
         {
@@ -433,7 +433,7 @@
       "name": "ds-ap-signal-dist",
       "displayName": "All-Purpose · Sizing Signal Distribution",
       "queryLines": [
-        "WITH ap AS ( SELECT cluster_id, COUNT(DISTINCT job_id) AS job_count, AVG(avg_cpu_util) AS avg_cpu, AVG(avg_mem_util) AS avg_mem, MIN(run_start_time) AS min_run_start FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_profiles_mv') WHERE cluster_source = 'UI' GROUP BY cluster_id ) SELECT CASE WHEN job_count >= 3 AND (avg_cpu IS NULL OR avg_cpu < 30) AND (avg_mem IS NULL OR avg_mem < 40) THEN 'LIKELY_DOWNSIZE' WHEN job_count >= 2 THEN 'CONSIDER_JOB_COMPUTE' WHEN job_count = 1 AND (avg_cpu IS NULL OR avg_cpu < 30) THEN 'LIKELY_DOWNSIZE' ELSE 'APPROPRIATE' END AS sizing_signal, COUNT(*) AS cluster_count, DATE(MIN(min_run_start)) AS run_start_time FROM ap GROUP BY 1"
+        "WITH ap AS ( SELECT cluster_id, COUNT(DISTINCT job_id) AS job_count, AVG(avg_cpu_util) AS avg_cpu, AVG(avg_mem_util) AS avg_mem, MIN(run_start_time) AS min_run_start FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') WHERE cluster_source = 'UI' GROUP BY cluster_id ) SELECT CASE WHEN job_count >= 3 AND (avg_cpu IS NULL OR avg_cpu < 30) AND (avg_mem IS NULL OR avg_mem < 40) THEN 'LIKELY_DOWNSIZE' WHEN job_count >= 2 THEN 'CONSIDER_JOB_COMPUTE' WHEN job_count = 1 AND (avg_cpu IS NULL OR avg_cpu < 30) THEN 'LIKELY_DOWNSIZE' ELSE 'APPROPRIATE' END AS sizing_signal, COUNT(*) AS cluster_count, DATE(MIN(min_run_start)) AS run_start_time FROM ap GROUP BY 1"
       ],
       "parameters": [
         {
@@ -472,7 +472,7 @@
       "name": "ds-ap-jobs",
       "displayName": "All-Purpose · Jobs on Shared Clusters",
       "queryLines": [
-        "SELECT cluster_name, COALESCE(job_name, CONCAT('Job ', job_id)) AS job_name, COUNT(DISTINCT job_run_id) AS run_count, ROUND(AVG(avg_cpu_util), 1) AS avg_cpu_util, ROUND(AVG(avg_mem_util), 1) AS avg_mem_util, ROUND(SUM(total_cost_usd), 2) AS total_cost_usd, DATE(MIN(run_start_time)) AS run_start_time FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_profiles_mv') WHERE cluster_source = 'UI' GROUP BY cluster_name, job_name, job_id ORDER BY total_cost_usd DESC LIMIT 50"
+        "SELECT cluster_name, COALESCE(job_name, CONCAT('Job ', job_id)) AS job_name, COUNT(DISTINCT job_run_id) AS run_count, ROUND(AVG(avg_cpu_util), 1) AS avg_cpu_util, ROUND(AVG(avg_mem_util), 1) AS avg_mem_util, ROUND(SUM(total_cost_usd), 2) AS total_cost_usd, DATE(MIN(run_start_time)) AS run_start_time FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') WHERE cluster_source = 'UI' GROUP BY cluster_name, job_name, job_id ORDER BY total_cost_usd DESC LIMIT 50"
       ],
       "parameters": [
         {

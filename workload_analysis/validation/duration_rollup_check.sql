@@ -1,7 +1,7 @@
 -- =====================================================================
 -- 검증: Duration (실행 시간) 롤업 일관성
 -- =====================================================================
--- job_run_cost_profiles_mv의 run_duration_minutes 합산이
+-- job_run_cost_analysis_mv의 run_duration_minutes 합산이
 -- sizing MV의 avg_run_duration_minutes * run_count 합산과
 -- 근사적으로 일치하는지 확인.
 --
@@ -28,7 +28,7 @@ WITH job_run_ap AS (
   SELECT
     SUM(run_duration_minutes) AS total_duration_minutes,
     COUNT(*)                  AS row_count
-  FROM ${source_catalog}.${analytics_schema}.job_run_cost_profiles_mv
+  FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv
   WHERE is_serverless = false
     AND cluster_source IN ('UI', 'API')
 ),
@@ -70,7 +70,7 @@ WITH job_run_jc AS (
   SELECT
     SUM(run_duration_minutes) AS total_duration_minutes,
     COUNT(*)                  AS row_count
-  FROM ${source_catalog}.${analytics_schema}.job_run_cost_profiles_mv
+  FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv
   WHERE is_serverless = false
     AND cluster_source = 'JOB'
 ),

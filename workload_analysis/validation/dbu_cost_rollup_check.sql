@@ -1,7 +1,7 @@
 -- =====================================================================
 -- 검증: DBU/비용 롤업 일관성
 -- =====================================================================
--- job_run_cost_profiles_mv (is_serverless=false)의
+-- job_run_cost_analysis_mv (is_serverless=false)의
 -- total_dbus, total_cost_usd 합산이
 -- all_purpose_cluster_sizing_mv + job_compute_sizing_mv 합산과 일치하는지 확인.
 --
@@ -16,7 +16,7 @@
 -- =============================================================
 -- T1: job_run (classic) 합산 == all_purpose + job_compute 합산
 -- =============================================================
--- job_run_cost_profiles_mv에서 is_serverless=false인 행의
+-- job_run_cost_analysis_mv에서 is_serverless=false인 행의
 -- total_dbus, total_cost_usd 합을 기준으로,
 -- all_purpose (UI/API) + job_compute (JOB) 합이 동일해야 한다.
 --
@@ -26,7 +26,7 @@ WITH job_run_classic AS (
   SELECT
     ROUND(SUM(total_dbus), 4)     AS total_dbus,
     ROUND(SUM(total_cost_usd), 2) AS total_cost_usd
-  FROM ${source_catalog}.${analytics_schema}.job_run_cost_profiles_mv
+  FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv
   WHERE is_serverless = false
 ),
 ap_jc_combined AS (
@@ -61,7 +61,7 @@ FROM job_run_classic jrc, ap_jc_combined ac;
 -- =============================================================
 -- T2: cluster_source 분포 확인
 -- =============================================================
--- job_run_cost_profiles_mv (is_serverless=false)에서
+-- job_run_cost_analysis_mv (is_serverless=false)에서
 -- cluster_source가 'UI', 'API', 'JOB' 외 값이 있으면
 -- sizing MV에서 누락될 수 있다.
 -- =============================================================
@@ -75,7 +75,7 @@ SELECT
     WHEN cluster_source IN ('UI', 'API', 'JOB') THEN 'COVERED'
     ELSE 'UNCOVERED - POTENTIAL COST LEAKAGE'
   END AS coverage_status
-FROM ${source_catalog}.${analytics_schema}.job_run_cost_profiles_mv
+FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv
 WHERE is_serverless = false
 GROUP BY cluster_source
 ORDER BY total_cost_usd DESC;
@@ -91,7 +91,7 @@ WITH job_run_ap AS (
   SELECT
     ROUND(SUM(total_dbus), 4)     AS total_dbus,
     ROUND(SUM(total_cost_usd), 2) AS total_cost_usd
-  FROM ${source_catalog}.${analytics_schema}.job_run_cost_profiles_mv
+  FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv
   WHERE is_serverless = false
     AND cluster_source IN ('UI', 'API')
 ),
@@ -128,7 +128,7 @@ WITH job_run_jc AS (
   SELECT
     ROUND(SUM(total_dbus), 4)     AS total_dbus,
     ROUND(SUM(total_cost_usd), 2) AS total_cost_usd
-  FROM ${source_catalog}.${analytics_schema}.job_run_cost_profiles_mv
+  FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv
   WHERE is_serverless = false
     AND cluster_source = 'JOB'
 ),

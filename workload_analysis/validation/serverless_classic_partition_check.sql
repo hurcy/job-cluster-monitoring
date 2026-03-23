@@ -1,7 +1,7 @@
 -- =====================================================================
 -- 검증: Serverless / Classic 파티션 일관성
 -- =====================================================================
--- job_run_cost_profiles_mv 전체 합산이
+-- job_run_cost_analysis_mv 전체 합산이
 -- serverless + classic 분리 합산과 동일한지 확인.
 -- sizing MV에 serverless 행이 포함되지 않았는지 검증.
 --
@@ -18,14 +18,14 @@ WITH total AS (
   SELECT
     ROUND(SUM(total_dbus), 4)     AS total_dbus,
     ROUND(SUM(total_cost_usd), 2) AS total_cost_usd
-  FROM ${source_catalog}.${analytics_schema}.job_run_cost_profiles_mv
+  FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv
 ),
 by_serverless AS (
   SELECT
     is_serverless,
     ROUND(SUM(total_dbus), 4)     AS total_dbus,
     ROUND(SUM(total_cost_usd), 2) AS total_cost_usd
-  FROM ${source_catalog}.${analytics_schema}.job_run_cost_profiles_mv
+  FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv
   GROUP BY is_serverless
 ),
 partitioned AS (
@@ -61,13 +61,13 @@ WITH job_run_all AS (
   SELECT
     ROUND(SUM(total_dbus), 4)     AS total_dbus,
     ROUND(SUM(total_cost_usd), 2) AS total_cost_usd
-  FROM ${source_catalog}.${analytics_schema}.job_run_cost_profiles_mv
+  FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv
 ),
 job_run_serverless AS (
   SELECT
     ROUND(SUM(total_dbus), 4)     AS total_dbus,
     ROUND(SUM(total_cost_usd), 2) AS total_cost_usd
-  FROM ${source_catalog}.${analytics_schema}.job_run_cost_profiles_mv
+  FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv
   WHERE is_serverless = true
 ),
 sizing_total AS (

@@ -40,7 +40,7 @@ job_run_all AS (
               AND (workspace_id IS NULL OR job_id IS NULL OR job_run_id IS NULL
                    OR total_dbus IS NULL OR total_cost_usd IS NULL) THEN 1 ELSE 0 END) AS null_key_cnt,
     COUNT(*) AS total_rows
-  FROM ${source_catalog}.${analytics_schema}.job_run_cost_profiles_mv
+  FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv
 ),
 ap_mv AS (
   SELECT

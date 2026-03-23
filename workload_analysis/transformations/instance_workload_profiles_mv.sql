@@ -36,7 +36,7 @@
 --     └─ 8b. job_run_timeline_v            [TEMP VIEW]
 --
 --   2,3,4,6b,7  ──►  9. instance_workload_profiles_mv         [MV] 최종 출력
---   8,4,7,6,8b,3 ──► 10. job_run_cost_profiles_mv             [MV] 최종 출력
+--   8,4,7,6,8b,3 ──► 10. job_run_cost_analysis_mv             [MV] 최종 출력
 --   10         ──► 12. all_purpose_cluster_sizing_mv         [MV] 최종 출력 (All-Purpose, per-cluster)
 --   10         ──► 13. job_compute_sizing_mv                 [MV] 최종 출력 (Job Compute, per-job)
 --   12,13      ──► 11. right_sizing_targets_mv               [MV] 하위호환 UNION (대시보드용)
@@ -391,7 +391,7 @@ GROUP BY workspace_id, job_id, run_id;
 
 
 -- =================================================================
--- 10. job_run_cost_profiles_mv  [MATERIALIZED VIEW] — 최종 출력
+-- 10. job_run_cost_analysis_mv  [MATERIALIZED VIEW] — 최종 출력
 -- =================================================================
 -- Job Run 단위 비용 프로파일.
 -- TEMPORARY VIEW(8)를 driving table로 하여 다른 TEMPORARY VIEW들을
@@ -400,7 +400,7 @@ GROUP BY workspace_id, job_id, run_id;
 -- job_run_timeline_v에서 COALESCE로 보완한다.
 -- =================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW job_run_cost_profiles_mv
+CREATE OR REFRESH MATERIALIZED VIEW job_run_cost_analysis_mv
 AS
 SELECT
   cjc.workspace_id,
@@ -490,7 +490,7 @@ GROUP BY
 -- All-Purpose 클러스터는 여러 잡이 동일 클러스터를 공유하므로,
 -- per-job recommendation은 오해를 유발한다.
 -- cluster_id 기준으로 집계하여 클러스터 전체 관점에서 권고를 생성한다.
--- job_run_cost_profiles_mv에서 cluster_source IN ('UI', 'API') 행만 추출.
+-- job_run_cost_analysis_mv에서 cluster_source IN ('UI', 'API') 행만 추출.
 -- =================================================================
 
 CREATE OR REFRESH MATERIALIZED VIEW all_purpose_cluster_sizing_mv
@@ -600,7 +600,7 @@ SELECT
     END, 2
   ) AS estimated_savings_usd
 
-FROM job_run_cost_profiles_mv cjc
+FROM job_run_cost_analysis_mv cjc
 WHERE cjc.is_serverless = false
   AND cjc.cluster_source IN ('UI', 'API')
 GROUP BY
@@ -617,7 +617,7 @@ GROUP BY
 -- =================================================================
 -- Job Compute 단위 Right Sizing 대상 식별.
 -- Job Compute는 잡과 클러스터가 1:1 매핑이므로 per-job 권고가 정확하다.
--- job_run_cost_profiles_mv에서 cluster_source = 'JOB' 행만 추출.
+-- job_run_cost_analysis_mv에서 cluster_source = 'JOB' 행만 추출.
 -- =================================================================
 
 CREATE OR REFRESH MATERIALIZED VIEW job_compute_sizing_mv
@@ -728,7 +728,7 @@ SELECT
     END, 2
   ) AS estimated_savings_usd
 
-FROM job_run_cost_profiles_mv cjc
+FROM job_run_cost_analysis_mv cjc
 WHERE cjc.is_serverless = false
   AND cjc.cluster_source = 'JOB'
 GROUP BY

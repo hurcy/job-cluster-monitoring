@@ -5,7 +5,7 @@
 -- total_dbus, total_cost_usd 합산이 분리 전 소스와 일치하는지 확인한다.
 --
 -- 검증 원칙:
---   job_run_cost_profiles_mv (is_serverless=false) 합산
+--   job_run_cost_analysis_mv (is_serverless=false) 합산
 --   == MV12 합산 + MV13 합산
 --
 -- 실행 방법:
@@ -18,7 +18,7 @@
 
 
 -- =============================================================
--- 검증 1: 소스 기준값 — job_run_cost_profiles_mv (classic compute)
+-- 검증 1: 소스 기준값 — job_run_cost_analysis_mv (classic compute)
 -- =============================================================
 -- 분리 전후 공통 기준값. is_serverless=false 전체 합산.
 -- =============================================================
@@ -26,7 +26,7 @@ SELECT
   'source_baseline'             AS check_name,
   ROUND(SUM(total_dbus), 4)     AS total_dbus,
   ROUND(SUM(total_cost_usd), 2) AS total_cost_usd
-FROM ${source_catalog}.${analytics_schema}.job_run_cost_profiles_mv
+FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv
 WHERE is_serverless = false;
 
 
@@ -58,7 +58,7 @@ WITH baseline AS (
   SELECT
     SUM(total_dbus)     AS dbus,
     SUM(total_cost_usd) AS cost
-  FROM ${source_catalog}.${analytics_schema}.job_run_cost_profiles_mv
+  FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv
   WHERE is_serverless = false
 ),
 split_total AS (
@@ -97,7 +97,7 @@ SELECT
   COUNT(DISTINCT job_run_id) AS run_count,
   ROUND(SUM(total_dbus), 4)  AS total_dbus,
   ROUND(SUM(total_cost_usd), 2) AS total_cost_usd
-FROM ${source_catalog}.${analytics_schema}.job_run_cost_profiles_mv
+FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv
 WHERE is_serverless = false
 GROUP BY cluster_source
 ORDER BY total_cost_usd DESC;
