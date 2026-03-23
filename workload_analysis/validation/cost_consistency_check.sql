@@ -1,5 +1,5 @@
 -- =====================================================================
--- 비용 일관성 검증: right_sizing_targets_mv 분리 전후 비교
+-- 비용 일관성 검증: right_sizing_analysis_mv 분리 전후 비교
 -- =====================================================================
 -- all_purpose_cluster_sizing_mv (MV 12) + job_compute_sizing_mv (MV 13)의
 -- total_dbus, total_cost_usd 합산이 분리 전 소스와 일치하는지 확인한다.

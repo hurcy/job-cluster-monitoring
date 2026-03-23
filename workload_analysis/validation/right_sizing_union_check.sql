@@ -1,7 +1,7 @@
 -- =====================================================================
--- 검증: right_sizing_targets_mv UNION 일관성
+-- 검증: right_sizing_analysis_mv UNION 일관성
 -- =====================================================================
--- right_sizing_targets_mv는 all_purpose_cluster_sizing_mv +
+-- right_sizing_analysis_mv는 all_purpose_cluster_sizing_mv +
 -- job_compute_sizing_mv의 UNION ALL이므로,
 -- total_dbus, total_cost_usd 합산이 정확히 일치해야 한다.
 -- 행 수도 동일해야 한다.
@@ -20,7 +20,7 @@ WITH rst AS (
     COUNT(*)                       AS row_count,
     ROUND(SUM(total_dbus), 4)     AS total_dbus,
     ROUND(SUM(total_cost_usd), 2) AS total_cost_usd
-  FROM ${source_catalog}.${analytics_schema}.right_sizing_targets_mv
+  FROM ${source_catalog}.${analytics_schema}.right_sizing_analysis_mv
 ),
 ap_jc AS (
   SELECT
@@ -56,7 +56,7 @@ FROM rst, ap_jc;
 -- T8: right_sizing_targets 행 수 == ap 행 수 + jc 행 수
 -- =============================================================
 WITH rst_count AS (
-  SELECT COUNT(*) AS cnt FROM ${source_catalog}.${analytics_schema}.right_sizing_targets_mv
+  SELECT COUNT(*) AS cnt FROM ${source_catalog}.${analytics_schema}.right_sizing_analysis_mv
 ),
 ap_count AS (
   SELECT COUNT(*) AS cnt FROM ${source_catalog}.${analytics_schema}.all_purpose_cluster_sizing_mv
@@ -88,7 +88,7 @@ WITH rst_by_type AS (
     compute_type,
     ROUND(SUM(total_dbus), 4)     AS total_dbus,
     ROUND(SUM(total_cost_usd), 2) AS total_cost_usd
-  FROM ${source_catalog}.${analytics_schema}.right_sizing_targets_mv
+  FROM ${source_catalog}.${analytics_schema}.right_sizing_analysis_mv
   GROUP BY compute_type
 ),
 ap_mv AS (

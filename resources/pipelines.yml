@@ -29,7 +29,7 @@ resources:
         end_date: ${var.end_date}
       libraries:
         - file:
-            path: ../workload_analysis/transformations/instance_workload_profiles_mv.sql
+            path: ../workload_analysis/transformations/instance_workload_analysis_mv.sql
       permissions:
         - level: CAN_VIEW
           group_name: users

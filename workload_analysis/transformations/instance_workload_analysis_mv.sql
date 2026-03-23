@@ -35,11 +35,11 @@
 --   ${source_catalog}.${source_schema}.job_run_timeline
 --     └─ 8b. job_run_timeline_v            [TEMP VIEW]
 --
---   2,3,4,6b,7  ──►  9. instance_workload_profiles_mv         [MV] 최종 출력
+--   2,3,4,6b,7  ──►  9. instance_workload_analysis_mv         [MV] 최종 출력
 --   8,4,7,6,8b,3 ──► 10. job_run_cost_analysis_mv             [MV] 최종 출력
 --   10         ──► 12. all_purpose_cluster_sizing_mv         [MV] 최종 출력 (All-Purpose, per-cluster)
 --   10         ──► 13. job_compute_sizing_mv                 [MV] 최종 출력 (Job Compute, per-job)
---   12,13      ──► 11. right_sizing_targets_mv               [MV] 하위호환 UNION (대시보드용)
+--   12,13      ──► 11. right_sizing_analysis_mv               [MV] 하위호환 UNION (대시보드용)
 --
 -- Pipeline Configuration Parameters:
 --   workspace_id      - 분석 대상 워크스페이스 ID (STRING)
@@ -288,13 +288,13 @@ GROUP BY u.workspace_id, u.usage_metadata.cluster_id, u.usage_metadata.job_id, u
 
 
 -- =================================================================
--- 9. instance_workload_profiles_mv  [MATERIALIZED VIEW] — 최종 출력
+-- 9. instance_workload_analysis_mv  [MATERIALIZED VIEW] — 최종 출력
 -- =================================================================
 -- 인스턴스 수준 프로파일링: 활용률 + 클러스터 구성 + 잡 실행.
 -- TEMPORARY VIEW들을 조인하여 최종 MV로 영속화한다.
 -- =================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW instance_workload_profiles_mv
+CREATE OR REFRESH MATERIALIZED VIEW instance_workload_analysis_mv
 AS
 SELECT
   iu.workspace_id,
@@ -742,7 +742,7 @@ GROUP BY
 
 
 -- =================================================================
--- 11. right_sizing_targets_mv  [MATERIALIZED VIEW] — 하위호환 UNION
+-- 11. right_sizing_analysis_mv  [MATERIALIZED VIEW] — 하위호환 UNION
 -- =================================================================
 -- MV 12 (All-Purpose, per-cluster) + MV 13 (Job Compute, per-job)의
 -- UNION ALL. 대시보드(6.right_sizing_targets)의 하위호환성을 위해 유지.
@@ -750,7 +750,7 @@ GROUP BY
 -- Job Compute 행은 job_count를 NULL로 채운다.
 -- =================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW right_sizing_targets_mv
+CREATE OR REFRESH MATERIALIZED VIEW right_sizing_analysis_mv
 AS
 -- All-Purpose: per-cluster, 잡 특정 컬럼은 NULL
 SELECT

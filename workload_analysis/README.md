@@ -1,6 +1,6 @@
 # sdp_optimization — Job & Cluster Workload Profiling Pipeline
 
-A **Lakeflow Declarative Pipeline** that combines Databricks system tables (compute, billing, lakeflow) into a single analytical materialized view — `instance_workload_profiles_mv` — for job-cluster cost analysis and instance-level workload profiling.
+A **Lakeflow Declarative Pipeline** that combines Databricks system tables (compute, billing, lakeflow) into a single analytical materialized view — `instance_workload_analysis_mv` — for job-cluster cost analysis and instance-level workload profiling.
 
 ## Pipeline DAG
 
@@ -23,7 +23,7 @@ system.lakeflow.jobs
 system.billing.usage + list_prices
   └─ 8. cluster_job_cost_mv        (DBU + USD per cluster × job)
 
-2, 3, 4, 6, 7, 8  ──►  9. instance_workload_profiles_mv
+2, 3, 4, 6, 7, 8  ──►  9. instance_workload_analysis_mv
 ```
 
 ## Pipeline Objects
@@ -38,7 +38,7 @@ system.billing.usage + list_prices
 | 6 | `task_run_stats_mv` | MV | Per-run aggregates filtered to successful task runs |
 | 7 | `job_config_latest_mv` | MV | Latest job metadata snapshot (SCD2, non-deleted) |
 | 8 | `cluster_job_cost_mv` | MV | Cost (DBU + USD) per cluster × job using billing + list prices |
-| 9 | `instance_workload_profiles_mv` | MV | Final join combining utilization, config, runs, and cost |
+| 9 | `instance_workload_analysis_mv` | MV | Final join combining utilization, config, runs, and cost |
 
 ### Workload Profile Categories (assigned in step 3)
 
@@ -64,7 +64,7 @@ The pipeline requires one parameter:
 sdp_optimization/
 ├── README.md
 ├── transformations/
-│   └── instance_workload_profiles_mv.sql   # All 9 pipeline object definitions
+│   └── instance_workload_analysis_mv.sql   # All 9 pipeline object definitions
 └── explorations/
     └── sample_exploration.sql              # Ad-hoc notebook for verifying pipeline output
 ```

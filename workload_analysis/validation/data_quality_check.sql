@@ -115,12 +115,12 @@ SELECT
   (SELECT COUNT(*) FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv)     AS job_run_rows,
   (SELECT COUNT(*) FROM ${source_catalog}.${analytics_schema}.all_purpose_cluster_sizing_mv) AS ap_rows,
   (SELECT COUNT(*) FROM ${source_catalog}.${analytics_schema}.job_compute_sizing_mv)         AS jc_rows,
-  (SELECT COUNT(*) FROM ${source_catalog}.${analytics_schema}.right_sizing_targets_mv)       AS rst_rows,
-  (SELECT COUNT(*) FROM ${source_catalog}.${analytics_schema}.instance_workload_profiles_mv) AS iwp_rows,
+  (SELECT COUNT(*) FROM ${source_catalog}.${analytics_schema}.right_sizing_analysis_mv)       AS rst_rows,
+  (SELECT COUNT(*) FROM ${source_catalog}.${analytics_schema}.instance_workload_analysis_mv) AS iwp_rows,
   CASE
     WHEN (SELECT COUNT(*) FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv) > 0
-     AND (SELECT COUNT(*) FROM ${source_catalog}.${analytics_schema}.right_sizing_targets_mv)  > 0
-     AND (SELECT COUNT(*) FROM ${source_catalog}.${analytics_schema}.instance_workload_profiles_mv) > 0
+     AND (SELECT COUNT(*) FROM ${source_catalog}.${analytics_schema}.right_sizing_analysis_mv)  > 0
+     AND (SELECT COUNT(*) FROM ${source_catalog}.${analytics_schema}.instance_workload_analysis_mv) > 0
       THEN 'PASS'
     ELSE 'FAIL'
   END AS result;

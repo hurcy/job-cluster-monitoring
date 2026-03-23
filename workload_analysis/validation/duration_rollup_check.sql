@@ -104,14 +104,14 @@ FROM job_run_jc jr, jc_mv mv;
 -- =============================================================
 -- T12: right_sizing_targets duration 일관성
 -- =============================================================
--- right_sizing_targets_mv의 SUM(avg_run_duration_minutes * run_count)가
+-- right_sizing_analysis_mv의 SUM(avg_run_duration_minutes * run_count)가
 -- all_purpose + job_compute 합산과 동일해야 한다.
 -- (UNION ALL이므로 정확히 일치해야 한다)
 -- =============================================================
 WITH rst AS (
   SELECT
     ROUND(SUM(avg_run_duration_minutes * run_count), 2) AS total_duration
-  FROM ${source_catalog}.${analytics_schema}.right_sizing_targets_mv
+  FROM ${source_catalog}.${analytics_schema}.right_sizing_analysis_mv
 ),
 ap_jc AS (
   SELECT

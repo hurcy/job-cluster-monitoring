@@ -70,11 +70,11 @@ rst_mv AS (
     COALESCE(SUM(CASE WHEN compute_type = 'All-Purpose' THEN total_cost_usd ELSE 0 END), 0) AS ap_cost,
     COALESCE(SUM(CASE WHEN compute_type = 'Job Compute' THEN total_cost_usd ELSE 0 END), 0) AS jc_cost,
     COUNT(*) AS row_count
-  FROM ${source_catalog}.${analytics_schema}.right_sizing_targets_mv
+  FROM ${source_catalog}.${analytics_schema}.right_sizing_analysis_mv
 ),
 iwp_mv AS (
   SELECT COUNT(*) AS row_count
-  FROM ${source_catalog}.${analytics_schema}.instance_workload_profiles_mv
+  FROM ${source_catalog}.${analytics_schema}.instance_workload_analysis_mv
 )
 
 -- ---------------------------------------------------------------
