@@ -513,6 +513,181 @@
       "queryLines": [
         "select 'hurcy' as catalog, 'test' as schema"
       ]
+    },
+    {
+      "name": "ds-spill",
+      "displayName": "Spill · per-statement",
+      "queryLines": [
+        "SELECT\n",
+        "  spill_date AS run_start_time,\n",
+        "  compute_label, is_job_attributed, job_id, job_name, warehouse_id, cluster_id,\n",
+        "  statement_type, executed_by,\n",
+        "  spill_gb, read_gb, shuffle_gb, read_files, pruned_files, exec_s,\n",
+        "  root_cause, root_cause_detail, statement_text, statement_id\n",
+        "FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.query_spill_v')\n",
+        "ORDER BY spill_gb DESC\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds-spill-jobs",
+      "displayName": "Spill · job-attributed only",
+      "queryLines": [
+        "SELECT\n",
+        "  spill_date AS run_start_time,\n",
+        "  job_id, job_name, compute_label, spill_gb, shuffle_gb, exec_s, root_cause\n",
+        "FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.query_spill_v')\n",
+        "WHERE job_id IS NOT NULL\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds-disk-pressure",
+      "displayName": "Cluster disk-free / swap pressure",
+      "queryLines": [
+        "SELECT\n",
+        "  sample_date AS run_start_time,\n",
+        "  cluster_id, samples, avg_mem_pct, max_swap_pct, min_disk_free_gb, mins_disk_low, pressure_signal\n",
+        "FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.cluster_disk_pressure_v')\n",
+        "ORDER BY min_disk_free_gb ASC\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds-expanded-disk",
+      "displayName": "Actual EXPANDED_DISK events",
+      "queryLines": [
+        "SELECT\n",
+        "  event_date AS run_start_time,\n",
+        "  event_time, cluster_id, event_type, instance_id, previous_disk_size, disk_size, free_space_bytes, cause\n",
+        "FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.expanded_disk_events')\n",
+        "ORDER BY event_time DESC\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        }
+      ]
     }
   ],
   "pages": [
@@ -862,6 +1037,57 @@
                   ],
                   "disaggregated": false
                 }
+              },
+              {
+                "name": "spill-filter_ds-spill_run_start_time",
+                "query": {
+                  "datasetName": "ds-spill",
+                  "fields": [
+                    {
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
+                    },
+                    {
+                      "name": "run_start_time_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "spill-filter_ds-disk-pressure_run_start_time",
+                "query": {
+                  "datasetName": "ds-disk-pressure",
+                  "fields": [
+                    {
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
+                    },
+                    {
+                      "name": "run_start_time_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "spill-filter_ds-expanded-disk_run_start_time",
+                "query": {
+                  "datasetName": "ds-expanded-disk",
+                  "fields": [
+                    {
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
+                    },
+                    {
+                      "name": "run_start_time_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
               }
             ],
             "spec": {
@@ -937,6 +1163,18 @@
                   {
                     "fieldName": "run_start_time",
                     "queryName": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a01a199b5738b026137f99_run_start_time"
+                  },
+                  {
+                    "fieldName": "run_start_time",
+                    "queryName": "spill-filter_ds-spill_run_start_time"
+                  },
+                  {
+                    "fieldName": "run_start_time",
+                    "queryName": "spill-filter_ds-disk-pressure_run_start_time"
+                  },
+                  {
+                    "fieldName": "run_start_time",
+                    "queryName": "spill-filter_ds-expanded-disk_run_start_time"
                   }
                 ]
               }
@@ -2388,6 +2626,863 @@
       ],
       "pageType": "PAGE_TYPE_CANVAS",
       "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "page-spill",
+      "displayName": "Disk Spill",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "spill-title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## 💽 Disk Spill Audit — Job Compute · Serverless · SQL Warehouse"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "spill-subtitle",
+            "multilineTextboxSpec": {
+              "lines": [
+                "로컬 디스크로 spill 한 코드/쿼리의 현황. `system.query.history` 기반 (Method A). Compute Type 으로 **SQL Warehouse / Serverless / Classic** 을, Root Cause 로 튜닝 방향을 구분한다. _기간/카탈로그/스키마는 Global Filters 페이지에서 조정._"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "spill-kpi-total",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-spill",
+                  "fields": [
+                    {
+                      "name": "spill_gb_total",
+                      "expression": "SUM(`spill_gb`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "spill_gb_total",
+                  "displayName": "Total Spill (GB)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Total Spill (GB)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "spill-kpi-stmts",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-spill",
+                  "fields": [
+                    {
+                      "name": "stmt_count",
+                      "expression": "COUNT(`statement_id`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "stmt_count",
+                  "displayName": "Spilling Statements"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Spilling Statements"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "spill-kpi-jobs",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-spill-jobs",
+                  "fields": [
+                    {
+                      "name": "job_count",
+                      "expression": "COUNT(DISTINCT `job_id`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "job_count",
+                  "displayName": "Spilling Jobs"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Spilling Jobs"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "spill-sec-1",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### Spill by source & root cause"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "spill-by-compute",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-spill",
+                  "fields": [
+                    {
+                      "name": "compute_label",
+                      "expression": "`compute_label`"
+                    },
+                    {
+                      "name": "sum(spill_gb)",
+                      "expression": "SUM(`spill_gb`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Spill GB by Compute Type"
+              },
+              "mark": {
+                "colors": [
+                  "#00A972",
+                  "#FFAB00",
+                  "#FF3621",
+                  "#8BCAE7",
+                  "#AB4ABA",
+                  "#FCA4A1"
+                ]
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "compute_label",
+                  "displayName": "Compute Type",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(spill_gb)",
+                  "displayName": "Spill (GB)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "spill-by-cause",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-spill",
+                  "fields": [
+                    {
+                      "name": "root_cause",
+                      "expression": "`root_cause`"
+                    },
+                    {
+                      "name": "sum(spill_gb)",
+                      "expression": "SUM(`spill_gb`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Spill GB by Root Cause"
+              },
+              "mark": {
+                "colors": [
+                  "#00A972",
+                  "#FFAB00",
+                  "#FF3621",
+                  "#8BCAE7",
+                  "#AB4ABA",
+                  "#FCA4A1"
+                ]
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "root_cause",
+                  "displayName": "Root Cause",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(spill_gb)",
+                  "displayName": "Spill (GB)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 7,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "spill-sec-2",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### Top spilling jobs (Job Compute)"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "spill-top-jobs",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-spill-jobs",
+                  "fields": [
+                    {
+                      "name": "job_name",
+                      "expression": "`job_name`"
+                    },
+                    {
+                      "name": "sum(spill_gb)",
+                      "expression": "SUM(`spill_gb`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Top Jobs by Total Spill (GB)"
+              },
+              "mark": {
+                "colors": [
+                  "#00A972",
+                  "#FFAB00",
+                  "#FF3621",
+                  "#8BCAE7",
+                  "#AB4ABA",
+                  "#FCA4A1"
+                ]
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "job_name",
+                  "displayName": "Job",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(spill_gb)",
+                  "displayName": "Spill (GB)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 6,
+            "height": 7
+          }
+        }
+      ]
+    },
+    {
+      "name": "page-spill-detail",
+      "displayName": "Spill Detail & Expanded Disk",
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layout": [
+        {
+          "widget": {
+            "name": "spilld-title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## 🔎 Spill Detail · Disk Pressure · Expanded-Disk Events"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "spilld-subtitle",
+            "multilineTextboxSpec": {
+              "lines": [
+                "문장 단위 spill 진단(원인+처방), 클러스터 disk-free floor(elastic-disk 확장 신호), 그리고 Cluster Events API 에서 적재한 **실제 EXPANDED_DISK 이벤트**."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 1,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "spilld-detail",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-spill",
+                  "fields": [
+                    {
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
+                    },
+                    {
+                      "name": "compute_label",
+                      "expression": "`compute_label`"
+                    },
+                    {
+                      "name": "job_name",
+                      "expression": "`job_name`"
+                    },
+                    {
+                      "name": "warehouse_id",
+                      "expression": "`warehouse_id`"
+                    },
+                    {
+                      "name": "spill_gb",
+                      "expression": "`spill_gb`"
+                    },
+                    {
+                      "name": "read_gb",
+                      "expression": "`read_gb`"
+                    },
+                    {
+                      "name": "shuffle_gb",
+                      "expression": "`shuffle_gb`"
+                    },
+                    {
+                      "name": "read_files",
+                      "expression": "`read_files`"
+                    },
+                    {
+                      "name": "pruned_files",
+                      "expression": "`pruned_files`"
+                    },
+                    {
+                      "name": "exec_s",
+                      "expression": "`exec_s`"
+                    },
+                    {
+                      "name": "root_cause",
+                      "expression": "`root_cause`"
+                    },
+                    {
+                      "name": "root_cause_detail",
+                      "expression": "`root_cause_detail`"
+                    },
+                    {
+                      "name": "statement_text",
+                      "expression": "`statement_text`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Per-statement Spill Diagnostics"
+              },
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "run_start_time",
+                    "displayName": "Date"
+                  },
+                  {
+                    "fieldName": "compute_label",
+                    "displayName": "Compute"
+                  },
+                  {
+                    "fieldName": "job_name",
+                    "displayName": "Job"
+                  },
+                  {
+                    "fieldName": "warehouse_id",
+                    "displayName": "Warehouse"
+                  },
+                  {
+                    "fieldName": "spill_gb",
+                    "displayName": "Spill (GB)"
+                  },
+                  {
+                    "fieldName": "read_gb",
+                    "displayName": "Read (GB)"
+                  },
+                  {
+                    "fieldName": "shuffle_gb",
+                    "displayName": "Shuffle (GB)"
+                  },
+                  {
+                    "fieldName": "read_files",
+                    "displayName": "Files"
+                  },
+                  {
+                    "fieldName": "pruned_files",
+                    "displayName": "Pruned"
+                  },
+                  {
+                    "fieldName": "exec_s",
+                    "displayName": "Exec (s)"
+                  },
+                  {
+                    "fieldName": "root_cause",
+                    "displayName": "Root Cause"
+                  },
+                  {
+                    "fieldName": "root_cause_detail",
+                    "displayName": "Diagnosis & Fix"
+                  },
+                  {
+                    "fieldName": "statement_text",
+                    "displayName": "Statement"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 6,
+            "height": 10
+          }
+        },
+        {
+          "widget": {
+            "name": "spilld-sec-1",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### Cluster disk-free / swap pressure (elastic-disk expansion signal)"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "spilld-pressure-dist",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-disk-pressure",
+                  "fields": [
+                    {
+                      "name": "pressure_signal",
+                      "expression": "`pressure_signal`"
+                    },
+                    {
+                      "name": "count_distinct_cluster",
+                      "expression": "COUNT(DISTINCT `cluster_id`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Clusters by Pressure Signal"
+              },
+              "mark": {
+                "colors": [
+                  "#00A972",
+                  "#FFAB00",
+                  "#FF3621",
+                  "#8BCAE7",
+                  "#AB4ABA",
+                  "#FCA4A1"
+                ]
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "pressure_signal",
+                  "displayName": "Pressure Signal",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "count_distinct_cluster",
+                  "displayName": "Clusters",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 2,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "spilld-pressure",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-disk-pressure",
+                  "fields": [
+                    {
+                      "name": "cluster_id",
+                      "expression": "`cluster_id`"
+                    },
+                    {
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
+                    },
+                    {
+                      "name": "min_disk_free_gb",
+                      "expression": "`min_disk_free_gb`"
+                    },
+                    {
+                      "name": "avg_mem_pct",
+                      "expression": "`avg_mem_pct`"
+                    },
+                    {
+                      "name": "max_swap_pct",
+                      "expression": "`max_swap_pct`"
+                    },
+                    {
+                      "name": "mins_disk_low",
+                      "expression": "`mins_disk_low`"
+                    },
+                    {
+                      "name": "pressure_signal",
+                      "expression": "`pressure_signal`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Cluster Disk Pressure (worst floors first)"
+              },
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "cluster_id",
+                    "displayName": "Cluster"
+                  },
+                  {
+                    "fieldName": "run_start_time",
+                    "displayName": "Date"
+                  },
+                  {
+                    "fieldName": "min_disk_free_gb",
+                    "displayName": "Min Disk Free (GB)"
+                  },
+                  {
+                    "fieldName": "avg_mem_pct",
+                    "displayName": "Avg Mem %"
+                  },
+                  {
+                    "fieldName": "max_swap_pct",
+                    "displayName": "Max Swap %"
+                  },
+                  {
+                    "fieldName": "mins_disk_low",
+                    "displayName": "Mins Disk<8GB"
+                  },
+                  {
+                    "fieldName": "pressure_signal",
+                    "displayName": "Signal"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 13,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "spilld-sec-2",
+            "multilineTextboxSpec": {
+              "lines": [
+                "### Actual EXPANDED_DISK events (durable log)",
+                "_Cluster Events API 기반. Serverless 는 이벤트가 없고, 종료된 job 클러스터는 ~30일 후 purge 되므로 초기에는 비어 있을 수 있다 — 매일 적재되며 시간이 지날수록 채워진다._"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 19,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "spilld-events",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-expanded-disk",
+                  "fields": [
+                    {
+                      "name": "event_time",
+                      "expression": "`event_time`"
+                    },
+                    {
+                      "name": "cluster_id",
+                      "expression": "`cluster_id`"
+                    },
+                    {
+                      "name": "event_type",
+                      "expression": "`event_type`"
+                    },
+                    {
+                      "name": "instance_id",
+                      "expression": "`instance_id`"
+                    },
+                    {
+                      "name": "previous_disk_size",
+                      "expression": "`previous_disk_size`"
+                    },
+                    {
+                      "name": "disk_size",
+                      "expression": "`disk_size`"
+                    },
+                    {
+                      "name": "free_space_bytes",
+                      "expression": "`free_space_bytes`"
+                    },
+                    {
+                      "name": "cause",
+                      "expression": "`cause`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "EXPANDED_DISK / DID_NOT_EXPAND_DISK Events"
+              },
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "event_time",
+                    "displayName": "Event Time"
+                  },
+                  {
+                    "fieldName": "cluster_id",
+                    "displayName": "Cluster"
+                  },
+                  {
+                    "fieldName": "event_type",
+                    "displayName": "Event"
+                  },
+                  {
+                    "fieldName": "instance_id",
+                    "displayName": "Instance"
+                  },
+                  {
+                    "fieldName": "previous_disk_size",
+                    "displayName": "Prev Disk"
+                  },
+                  {
+                    "fieldName": "disk_size",
+                    "displayName": "New Disk"
+                  },
+                  {
+                    "fieldName": "free_space_bytes",
+                    "displayName": "Free Bytes"
+                  },
+                  {
+                    "fieldName": "cause",
+                    "displayName": "Cause"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 21,
+            "width": 6,
+            "height": 6
+          }
+        }
+      ]
     }
   ]
 }

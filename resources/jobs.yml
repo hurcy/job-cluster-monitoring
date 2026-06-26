@@ -29,3 +29,40 @@ resources:
       permissions:
         - level: CAN_MANAGE_RUN
           group_name: users
+
+    # Disk-Spill audit — serverless-free, fully parameterized by bundle variables.
+    # One notebook on a classic single-node cluster (no serverless): (re)creates the
+    # query_spill_v / cluster_disk_pressure_v VIEWS + expanded_disk_events table in
+    # ${var.catalog}.${var.analytics_schema}, then ingests actual EXPANDED_DISK events.
+    # Deploys to ANY catalog.schema/workspace by changing the variables — no SQL editing.
+    spill_audit_refresh:
+      name: "[${bundle.target}] Spill Audit Refresh"
+      schedule:
+        quartz_cron_expression: "0 30 6 * * ?"
+        timezone_id: "Asia/Seoul"
+      job_clusters:
+        - job_cluster_key: spill_setup_cluster
+          new_cluster:
+            spark_version: "15.4.x-scala2.12"
+            node_type_id: "Standard_DS3_v2"
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.databricks.cluster.profile: singleNode
+              spark.master: "local[*]"
+            custom_tags:
+              ResourceClass: SingleNode
+      tasks:
+        - task_key: spill_audit_setup
+          job_cluster_key: spill_setup_cluster
+          notebook_task:
+            notebook_path: ../workload_analysis/ingestion/spill_audit_setup.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.analytics_schema}
+              workspace_id: ${var.workspace_id}
+              lookback_days: "30"
+              max_clusters: "150"
+      permissions:
+        - level: CAN_MANAGE_RUN
+          group_name: users
