@@ -1,6 +1,14 @@
-# sdp_optimization — Job & Cluster Workload Profiling Pipeline
+# Workload Analysis — Job & Cluster Right-Sizing (non-SDP)
 
-A **Lakeflow Declarative Pipeline** that combines Databricks system tables (compute, billing, lakeflow) into a single analytical materialized view — `instance_workload_analysis_mv` — for job-cluster cost analysis and instance-level workload profiling.
+`ingestion/workload_analysis_setup.py` — a **classic-cluster notebook (no serverless, no SDP/DLT)** —
+combines Databricks system tables (compute, billing, lakeflow), read **directly** (no system-table
+copies), into right-sizing analysis **tables** for job-cluster cost analysis and instance-level
+workload profiling. Ported from the former serverless Lakeflow Declarative Pipeline: intermediate
+steps are Spark `TEMPORARY VIEW`s and the final outputs are `TABLE`s (same names the dashboard reads).
+
+> The DAG/objects below describe the logic (unchanged from the original). In the non-SDP port,
+> objects suffixed conceptually as MV/ST are realized as in-session **temp views** (intermediates)
+> and **tables** (the 5 final outputs). Requires `system.compute.clusters` provisioned.
 
 ## Pipeline DAG
 
@@ -77,26 +85,31 @@ changing the variables — **no per-customer SQL editing**. Retarget the dashboa
 
 ## Configuration
 
-The pipeline requires one parameter:
+`workload_analysis_setup.py` notebook widgets (set from bundle variables by the `daily_mv_refresh` job):
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `workspace_id` | STRING | Target workspace ID to analyze |
+| Widget | Description |
+|--------|-------------|
+| `catalog` | Output catalog for the analysis tables |
+| `schema` | Output schema |
+| `workspace_id` | Workspace ID used to scope every `system.*` read |
 
 ## Directory Structure
 
 ```
-sdp_optimization/
+workload_analysis/
 ├── README.md
-├── transformations/
-│   └── instance_workload_analysis_mv.sql   # All 9 pipeline object definitions
-└── explorations/
-    └── sample_exploration.sql              # Ad-hoc notebook for verifying pipeline output
+├── ingestion/
+│   ├── workload_analysis_setup.py   # Right-Sizing tables — reads system.* directly, no SDP
+│   └── spill_audit_setup.py         # Disk-Spill views + EXPANDED_DISK event ingestion
+├── explorations/                    # ad-hoc notebooks
+└── validation/                      # data-quality check queries
 ```
 
 ## Getting Started
 
-1. Open the pipeline in the Databricks workspace.
-2. Set the `workspace_id` pipeline parameter to the target workspace.
-3. **Run pipeline** to materialize all 9 objects.
-4. Use the exploration notebook under `explorations/` to verify output and perform ad-hoc analysis.
+1. Set bundle variables (`catalog`, `analytics_schema`, `workspace_id`, `warehouse_id`) in `databricks.yml`.
+2. `databricks bundle deploy -t <target>`.
+3. Run the analysis jobs (classic clusters — **no serverless, no SDP**):
+   - `databricks bundle run daily_mv_refresh -t <target>` — Right-Sizing tables (needs `system.compute.clusters`).
+   - `databricks bundle run spill_audit_refresh -t <target>` — Disk-Spill views + events.
+4. Retarget the dashboard for a different catalog.schema: `CATALOG=… SCHEMA=… OUT=… python3 build_dashboard.py` (repo root).

@@ -1,68 +1,58 @@
+# Databricks notebook source
+# MAGIC %md
+# MAGIC # Right-Sizing Analysis — Setup (non-SDP, classic cluster)
+# MAGIC
+# MAGIC Builds the right-sizing analysis TABLEs from **system tables read directly** — no
+# MAGIC serverless, no SDP/DLT, no system-table copies. Runs on a **classic single-node
+# MAGIC cluster**, parameterized by bundle variables (deploys to any catalog.schema/workspace).
+# MAGIC
+# MAGIC Outputs (in `${catalog}`.`${schema}`): `instance_workload_analysis_mv`,
+# MAGIC `job_run_cost_analysis_mv`, `all_purpose_cluster_sizing_mv`, `job_compute_sizing_mv`,
+# MAGIC `right_sizing_analysis_mv` — same names the dashboard reads (no dashboard change).
+# MAGIC
+# MAGIC > Requires `system.compute.clusters` provisioned in the target workspace.
+
+# COMMAND ----------
+
+dbutils.widgets.text("catalog", "hurcy", "Target catalog")
+dbutils.widgets.text("schema", "test", "Target schema (analytics)")
+dbutils.widgets.text("workspace_id", "984752964297111", "Workspace id to scope")
+
+CATALOG = dbutils.widgets.get("catalog")
+SCHEMA = dbutils.widgets.get("schema")
+WORKSPACE_ID = dbutils.widgets.get("workspace_id")
+print(f"target={CATALOG}.{SCHEMA}  workspace_id={WORKSPACE_ID}")
+
+# COMMAND ----------
+
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{CATALOG}`.`{SCHEMA}`")
+spark.sql(f"USE CATALOG `{CATALOG}`")
+spark.sql(f"USE SCHEMA `{SCHEMA}`")
+
+# COMMAND ----------
+
+import re
+
+SQL_SCRIPT = r"""-- =====================================================================
+-- Job & Cluster Right-Sizing Analysis  (non-SDP, reads system.* directly)
 -- =====================================================================
--- Job & Cluster Monitoring - Lakeflow Declarative Pipeline
--- =====================================================================
--- system_table_copies_mv.sql 파이프라인이 system.*.* 테이블에서
--- 워크스페이스별로 필터링한 MV 사본을 ${source_catalog}.${source_schema}에
--- 생성한다. 이 파이프라인은 해당 사본을 소스로 사용하여 분석 MV를 생성한다.
---
--- 중간 단계(1~8)는 TEMPORARY LIVE VIEW로 처리하고,
--- 최종 출력(9, 10, 11)만 MATERIALIZED VIEW로 영속화한다.
---
--- Source Tables (${source_catalog}.${source_schema}):
---   node_timeline, clusters, job_task_run_timeline, job_run_timeline, jobs, usage, list_prices
---
--- Pipeline DAG:
---
---   ${source_catalog}.${source_schema}.node_timeline
---     ├─ 1. node_count_per_minute_v        [TEMP VIEW]
---     │    └─ 2. node_count_stats_v        [TEMP VIEW]
---     └─ 3. instance_utilization_v         [TEMP VIEW]
---
---   ${source_catalog}.${source_schema}.clusters
---     └─ 4. cluster_config_latest_v        [TEMP VIEW]
---
---   ${source_catalog}.${source_schema}.job_task_run_timeline
---     └─ 5. exploded_task_runs_v           [TEMP VIEW]
---          ├─ 6. task_run_stats_v          [TEMP VIEW]
---          └─ 6b. job_run_cluster_map_v    [TEMP VIEW]
---
---   ${source_catalog}.${source_schema}.jobs
---     └─ 7. job_config_latest_v            [TEMP VIEW]
---
---   ${source_catalog}.${source_schema}.usage + list_prices
---     └─ 8. cluster_job_run_cost_v         [TEMP VIEW]
---
---   ${source_catalog}.${source_schema}.job_run_timeline
---     └─ 8b. job_run_timeline_v            [TEMP VIEW]
---
---   2,3,4,6b,7  ──►  9. instance_workload_analysis_mv         [MV] 최종 출력
---   8,4,7,6,8b,3 ──► 10. job_run_cost_analysis_mv             [MV] 최종 출력
---   10         ──► 12. all_purpose_cluster_sizing_mv         [MV] 최종 출력 (All-Purpose, per-cluster)
---   10         ──► 13. job_compute_sizing_mv                 [MV] 최종 출력 (Job Compute, per-job)
---   12,13      ──► 11. right_sizing_analysis_mv               [MV] 하위호환 UNION (대시보드용)
---
--- Pipeline Configuration Parameters:
---   workspace_id      - 분석 대상 워크스페이스 ID (STRING)
---   source_catalog    - 시스템 테이블 사본 카탈로그 (STRING, default: hurcy)
---   source_schema     - 시스템 테이블 사본 스키마 (STRING, default: default)
---   (날짜 범위: Rolling 90-day window — CURRENT_DATE()-90 ~ CURRENT_DATE())
+-- Ported from the serverless DLT pipeline: no SDP/serverless, no system-table
+-- copies. Intermediate steps are Spark TEMPORARY VIEWs; final outputs are TABLEs
+-- in the current catalog.schema (set via USE by the runner notebook).
+-- Reads system.compute.{node_timeline,clusters}, system.lakeflow.{jobs,
+-- job_task_run_timeline,job_run_timeline}, system.billing.{usage,list_prices}.
+-- Window: rolling 90 days. Scoped to '${workspace_id}'.
 -- =====================================================================
 
 
--- =================================================================
--- 1. node_count_per_minute_v  [TEMPORARY LIVE VIEW]
--- =================================================================
--- 분 단위 워커 노드 수 집계 (오토스케일 분석용).
--- =================================================================
-
-CREATE TEMPORARY LIVE VIEW node_count_per_minute_v
+CREATE OR REPLACE TEMPORARY VIEW node_count_per_minute_v
 AS
 SELECT
   cluster_id,
   node_type,
   DATE_TRUNC('minute', start_time) AS minute_ts,
   COUNT(DISTINCT instance_id)      AS node_count
-FROM ${source_catalog}.${source_schema}.node_timeline
+FROM system.compute.node_timeline
 WHERE workspace_id = '${workspace_id}'
   AND driver = FALSE
   AND start_time >= DATE_SUB(CURRENT_DATE(), 90)
@@ -71,12 +61,12 @@ GROUP BY cluster_id, node_type, DATE_TRUNC('minute', start_time);
 
 
 -- =================================================================
--- 2. node_count_stats_v  [TEMPORARY LIVE VIEW]
+-- 2. node_count_stats_v  [TEMPORARY VIEW]
 -- =================================================================
 -- 클러스터별 노드 수 통계 (평균/최대/표준편차).
 -- =================================================================
 
-CREATE TEMPORARY LIVE VIEW node_count_stats_v
+CREATE OR REPLACE TEMPORARY VIEW node_count_stats_v
 AS
 SELECT
   cluster_id,
@@ -84,18 +74,18 @@ SELECT
   ROUND(AVG(node_count), 2)    AS avg_node_count,
   ROUND(MAX(node_count), 2)    AS max_node_count,
   ROUND(STDDEV(node_count), 2) AS stddev_node_count
-FROM LIVE.node_count_per_minute_v
+FROM node_count_per_minute_v
 GROUP BY cluster_id, node_type;
 
 
 -- =================================================================
--- 3. instance_utilization_v  [TEMPORARY LIVE VIEW]
+-- 3. instance_utilization_v  [TEMPORARY VIEW]
 -- =================================================================
 -- 인스턴스별 리소스 활용률 + 워크로드 프로파일 분류.
 -- median, stddev 포함 (sizing 판정용).
 -- =================================================================
 
-CREATE TEMPORARY LIVE VIEW instance_utilization_v
+CREATE OR REPLACE TEMPORARY VIEW instance_utilization_v
 AS
 SELECT
   workspace_id,
@@ -132,7 +122,7 @@ SELECT
       THEN 'Under-utilized'
     ELSE 'Balanced - Moderate Utilization'
   END AS workload_profile
-FROM ${source_catalog}.${source_schema}.node_timeline
+FROM system.compute.node_timeline
 WHERE workspace_id = '${workspace_id}'
   AND driver = FALSE
   AND start_time >= DATE_SUB(CURRENT_DATE(), 90)
@@ -141,12 +131,12 @@ GROUP BY workspace_id, cluster_id, driver, node_type, instance_id;
 
 
 -- =================================================================
--- 4. cluster_config_latest_v  [TEMPORARY LIVE VIEW]
+-- 4. cluster_config_latest_v  [TEMPORARY VIEW]
 -- =================================================================
 -- 클러스터 구성 정보 (SCD2 최신 버전).
 -- =================================================================
 
-CREATE TEMPORARY LIVE VIEW cluster_config_latest_v
+CREATE OR REPLACE TEMPORARY VIEW cluster_config_latest_v
 AS
 SELECT * FROM (
   SELECT *,
@@ -154,20 +144,20 @@ SELECT * FROM (
       PARTITION BY workspace_id, cluster_id
       ORDER BY change_time DESC
     ) AS _rn
-  FROM ${source_catalog}.${source_schema}.clusters
+  FROM system.compute.clusters
   WHERE workspace_id = '${workspace_id}'
 )
 WHERE _rn = 1;
 
 
 -- =================================================================
--- 5. exploded_task_runs_v  [TEMPORARY LIVE VIEW]
+-- 5. exploded_task_runs_v  [TEMPORARY VIEW]
 -- =================================================================
 -- 태스크 실행 → 클러스터 매핑.
 -- compute_ids 배열을 EXPLODE하여 태스크-클러스터 관계를 1:N으로 풀어낸다.
 -- =================================================================
 
-CREATE TEMPORARY LIVE VIEW exploded_task_runs_v
+CREATE OR REPLACE TEMPORARY VIEW exploded_task_runs_v
 AS
 SELECT
   tr.workspace_id,
@@ -180,7 +170,7 @@ SELECT
   tr.period_end_time,
   tr.result_state,
   tr.termination_code
-FROM ${source_catalog}.${source_schema}.job_task_run_timeline tr
+FROM system.lakeflow.job_task_run_timeline tr
 WHERE tr.workspace_id = '${workspace_id}'
   AND ARRAY_SIZE(tr.compute_ids) > 0
   AND tr.period_start_time >= DATE_SUB(CURRENT_DATE(), 90)
@@ -188,13 +178,13 @@ WHERE tr.workspace_id = '${workspace_id}'
 
 
 -- =================================================================
--- 6. task_run_stats_v  [TEMPORARY LIVE VIEW]
+-- 6. task_run_stats_v  [TEMPORARY VIEW]
 -- =================================================================
 -- Job Run 단위 집계 (클러스터별 × 잡 실행별).
 -- 성공한 태스크가 하나라도 있는 잡 실행만 필터링한다.
 -- =================================================================
 
-CREATE TEMPORARY LIVE VIEW task_run_stats_v
+CREATE OR REPLACE TEMPORARY VIEW task_run_stats_v
 AS
 SELECT
   workspace_id,
@@ -206,19 +196,19 @@ SELECT
   MAX(period_end_time)              AS period_end_time,
   COLLECT_SET(result_state)         AS result_states,
   COLLECT_SET(termination_code)     AS termination_codes
-FROM LIVE.exploded_task_runs_v
+FROM exploded_task_runs_v
 GROUP BY workspace_id, cluster_id, job_id, job_run_id
 HAVING ARRAY_CONTAINS(COLLECT_SET(result_state), 'SUCCESS')
     OR ARRAY_CONTAINS(COLLECT_SET(termination_code), 'SUCCESS');
 
 
 -- =================================================================
--- 6b. job_run_cluster_map_v  [TEMPORARY LIVE VIEW]
+-- 6b. job_run_cluster_map_v  [TEMPORARY VIEW]
 -- =================================================================
 -- Job의 Task가 실행된 cluster_id 매핑 (시간 범위 포함).
 -- =================================================================
 
-CREATE TEMPORARY LIVE VIEW job_run_cluster_map_v
+CREATE OR REPLACE TEMPORARY VIEW job_run_cluster_map_v
 AS
 SELECT
   workspace_id,
@@ -227,17 +217,17 @@ SELECT
   job_run_id,
   MIN(period_start_time)            AS period_start_time,
   MAX(period_end_time)              AS period_end_time
-FROM LIVE.exploded_task_runs_v
+FROM exploded_task_runs_v
 GROUP BY workspace_id, cluster_id, job_id, job_run_id;
 
 
 -- =================================================================
--- 7. job_config_latest_v  [TEMPORARY LIVE VIEW]
+-- 7. job_config_latest_v  [TEMPORARY VIEW]
 -- =================================================================
 -- 잡 메타데이터 (SCD2 최신 버전, 삭제되지 않은 잡만).
 -- =================================================================
 
-CREATE TEMPORARY LIVE VIEW job_config_latest_v
+CREATE OR REPLACE TEMPORARY VIEW job_config_latest_v
 AS
 SELECT * FROM (
   SELECT *,
@@ -245,7 +235,7 @@ SELECT * FROM (
       PARTITION BY workspace_id, job_id
       ORDER BY change_time DESC
     ) AS _rn
-  FROM ${source_catalog}.${source_schema}.jobs
+  FROM system.lakeflow.jobs
   WHERE workspace_id = '${workspace_id}'
     AND delete_time IS NULL
 )
@@ -253,14 +243,14 @@ WHERE _rn = 1;
 
 
 -- =================================================================
--- 8a. ap_cluster_cost_v  [TEMPORARY LIVE VIEW]
+-- 8a. ap_cluster_cost_v  [TEMPORARY VIEW]
 -- =================================================================
 -- All-Purpose 클러스터 단위 비용 집계.
 -- billing_origin_product = 'ALL_PURPOSE'는 job_id가 NULL이므로
 -- cluster_id 단위로만 집계한다.
 -- =================================================================
 
-CREATE TEMPORARY LIVE VIEW ap_cluster_cost_v
+CREATE OR REPLACE TEMPORARY VIEW ap_cluster_cost_v
 AS
 SELECT
   u.workspace_id,
@@ -270,8 +260,8 @@ SELECT
     u.usage_quantity
     * COALESCE(lp.pricing.effective_list.default, lp.pricing.default)
   ), 2)                                    AS total_cost_usd
-FROM ${source_catalog}.${source_schema}.usage u
-LEFT JOIN ${source_catalog}.${source_schema}.list_prices lp
+FROM system.billing.usage u
+LEFT JOIN system.billing.list_prices lp
   ON  u.sku_name         = lp.sku_name
   AND u.cloud            = lp.cloud
   AND u.usage_start_time >= lp.price_start_time
@@ -285,24 +275,24 @@ GROUP BY u.workspace_id, u.usage_metadata.cluster_id;
 
 
 -- =================================================================
--- 8b. ap_cluster_run_count_v  [TEMPORARY LIVE VIEW]
+-- 8b. ap_cluster_run_count_v  [TEMPORARY VIEW]
 -- =================================================================
 -- All-Purpose 클러스터별 distinct job_run 수.
 -- 비용 균등 배분 시 분모로 사용한다.
 -- =================================================================
 
-CREATE TEMPORARY LIVE VIEW ap_cluster_run_count_v
+CREATE OR REPLACE TEMPORARY VIEW ap_cluster_run_count_v
 AS
 SELECT
   workspace_id,
   cluster_id,
   COUNT(DISTINCT CONCAT(job_id, '-', job_run_id)) AS run_count
-FROM LIVE.exploded_task_runs_v
+FROM exploded_task_runs_v
 GROUP BY workspace_id, cluster_id;
 
 
 -- =================================================================
--- 8c. cluster_job_run_cost_v  [TEMPORARY LIVE VIEW]
+-- 8c. cluster_job_run_cost_v  [TEMPORARY VIEW]
 -- =================================================================
 -- 잡 실행 단위 비용 (DBU + USD).
 -- is_serverless 컬럼으로 serverless/classic 비용을 구분한다.
@@ -315,7 +305,7 @@ GROUP BY workspace_id, cluster_id;
 --   비용은 해당 클러스터에서 실행된 job_run 수 비례로 균등 배분한다.
 -- =================================================================
 
-CREATE TEMPORARY LIVE VIEW cluster_job_run_cost_v
+CREATE OR REPLACE TEMPORARY VIEW cluster_job_run_cost_v
 AS
 -- Part 1: Job Compute / Serverless — usage_metadata에 job_id 존재
 SELECT
@@ -329,8 +319,8 @@ SELECT
     u.usage_quantity
     * COALESCE(lp.pricing.effective_list.default, lp.pricing.default)
   ), 2)                                      AS total_cost_usd
-FROM ${source_catalog}.${source_schema}.usage u
-LEFT JOIN ${source_catalog}.${source_schema}.list_prices lp
+FROM system.billing.usage u
+LEFT JOIN system.billing.list_prices lp
   ON  u.sku_name         = lp.sku_name
   AND u.cloud            = lp.cloud
   AND u.usage_start_time >= lp.price_start_time
@@ -354,44 +344,27 @@ SELECT
   false                                      AS is_serverless,
   ROUND(ac.total_dbus / rc.run_count, 4)     AS total_dbus,
   ROUND(ac.total_cost_usd / rc.run_count, 2) AS total_cost_usd
-FROM LIVE.ap_cluster_cost_v ac
-JOIN LIVE.ap_cluster_run_count_v rc
+FROM ap_cluster_cost_v ac
+JOIN ap_cluster_run_count_v rc
   ON  ac.workspace_id = rc.workspace_id
   AND ac.cluster_id   = rc.cluster_id
   AND rc.run_count > 0
 JOIN (
   SELECT DISTINCT workspace_id, cluster_id, job_id, job_run_id
-  FROM LIVE.exploded_task_runs_v
+  FROM exploded_task_runs_v
 ) etr
   ON  ac.workspace_id = etr.workspace_id
   AND ac.cluster_id   = etr.cluster_id;
 
 
 -- =================================================================
--- 9. instance_workload_analysis_mv  [MATERIALIZED VIEW] — 최종 출력
+-- 9. instance_workload_analysis_mv  [TABLE] — 최종 출력
 -- =================================================================
 -- 인스턴스 수준 프로파일링: 활용률 + 클러스터 구성 + 잡 실행.
 -- TEMPORARY VIEW들을 조인하여 최종 MV로 영속화한다.
 -- =================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW instance_workload_analysis_mv
-(
-  -- Sanity: 필수 키 NOT NULL
-  CONSTRAINT dq_workspace_id_not_null EXPECT (workspace_id IS NOT NULL),
-  CONSTRAINT dq_cluster_id_not_null EXPECT (cluster_id IS NOT NULL),
-  CONSTRAINT dq_instance_id_not_null EXPECT (instance_id IS NOT NULL),
-
-  -- CPU/Mem 범위 (0~100%)
-  CONSTRAINT dq_cpu_util_range EXPECT (avg_cpu_util IS NULL OR (avg_cpu_util >= 0 AND avg_cpu_util <= 100)),
-  CONSTRAINT dq_mem_util_range EXPECT (avg_mem_util IS NULL OR (avg_mem_util >= 0 AND avg_mem_util <= 100)),
-
-  -- Workload profile 유효값
-  CONSTRAINT dq_valid_workload_profile EXPECT (workload_profile IN (
-    'CPU Intensive', 'Memory Intensive', 'Balanced - High Utilization',
-    'Under-utilized', 'Balanced - Moderate Utilization'
-  ))
-)
-AS
+CREATE OR REPLACE TABLE instance_workload_analysis_mv AS
 SELECT
   iu.workspace_id,
   iu.cluster_id,
@@ -441,37 +414,37 @@ SELECT
   jrc.period_end_time,
   DATEDIFF(MINUTE, jrc.period_start_time, jrc.period_end_time) AS job_run_duration_minutes
 
-FROM LIVE.instance_utilization_v iu
+FROM instance_utilization_v iu
 
-LEFT JOIN LIVE.node_count_stats_v ncs
+LEFT JOIN node_count_stats_v ncs
   ON  iu.cluster_id = ncs.cluster_id
   AND iu.node_type  = ncs.node_type
 
-LEFT JOIN LIVE.cluster_config_latest_v cc
+LEFT JOIN cluster_config_latest_v cc
   ON  iu.cluster_id   = cc.cluster_id
   AND iu.workspace_id = cc.workspace_id
 
-LEFT JOIN LIVE.job_run_cluster_map_v jrc
+LEFT JOIN job_run_cluster_map_v jrc
   ON  iu.cluster_id          = jrc.cluster_id
   AND iu.workspace_id        = jrc.workspace_id
   AND iu.instance_start_time <  jrc.period_end_time
   AND jrc.period_start_time  <  iu.instance_end_time
 
-LEFT JOIN LIVE.job_config_latest_v j
+LEFT JOIN job_config_latest_v j
   ON  jrc.job_id       = j.job_id
   AND jrc.workspace_id = j.workspace_id
 ;
 
 
 -- =================================================================
--- 8b. job_run_timeline_v  [TEMPORARY LIVE VIEW]
+-- 8b. job_run_timeline_v  [TEMPORARY VIEW]
 -- =================================================================
 -- Job Run 단위 시간 집계 (job_run_timeline 기반).
 -- Serverless job은 cluster_id/compute_ids가 없어 task_run_stats_v에
 -- 포함되지 않으므로, job_run_timeline에서 시간 정보를 보완한다.
 -- =================================================================
 
-CREATE TEMPORARY LIVE VIEW job_run_timeline_v
+CREATE OR REPLACE TEMPORARY VIEW job_run_timeline_v
 AS
 SELECT
   workspace_id,
@@ -479,7 +452,7 @@ SELECT
   run_id                               AS job_run_id,
   MIN(period_start_time)               AS period_start_time,
   MAX(period_end_time)                 AS period_end_time
-FROM ${source_catalog}.${source_schema}.job_run_timeline
+FROM system.lakeflow.job_run_timeline
 WHERE workspace_id = '${workspace_id}'
   AND period_start_time >= DATE_SUB(CURRENT_DATE(), 90)
   AND period_start_time <  CURRENT_DATE()
@@ -487,33 +460,14 @@ GROUP BY workspace_id, job_id, run_id;
 
 
 -- =================================================================
--- 10. job_run_cost_analysis_mv  [MATERIALIZED VIEW] — 최종 출력
+-- 10. job_run_cost_analysis_mv  [TABLE] — 최종 출력
 -- =================================================================
 -- Job Run 단위 비용 프로파일.
 -- cluster_job_run_cost_v를 driving table로 1:1 JOIN만 수행.
 -- instance_utilization은 downstream sizing MV에서 직접 집계한다.
 -- =================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW job_run_cost_analysis_mv
-(
-  -- Sanity: 필수 키 NOT NULL
-  CONSTRAINT dq_workspace_id_not_null EXPECT (workspace_id IS NOT NULL),
-  CONSTRAINT dq_job_id_not_null EXPECT (job_id IS NOT NULL),
-  CONSTRAINT dq_job_run_id_not_null EXPECT (job_run_id IS NOT NULL),
-
-  -- DBU/Cost 집계 정합성
-  CONSTRAINT dq_total_dbus_non_negative EXPECT (total_dbus >= 0),
-  CONSTRAINT dq_total_cost_non_negative EXPECT (total_cost_usd >= 0),
-  CONSTRAINT dq_cost_requires_dbus EXPECT (total_cost_usd = 0 OR total_dbus > 0),
-
-  -- Duration 정합성
-  CONSTRAINT dq_duration_non_negative EXPECT (run_duration_minutes IS NULL OR run_duration_minutes >= 0),
-  CONSTRAINT dq_run_start_time_not_null EXPECT (run_start_time IS NOT NULL),
-
-  -- Serverless/Classic 구분
-  CONSTRAINT dq_classic_has_cluster EXPECT (is_serverless = true OR cluster_id IS NOT NULL)
-)
-AS
+CREATE OR REPLACE TABLE job_run_cost_analysis_mv AS
 SELECT
   cjc.workspace_id,
   cjc.cluster_id,
@@ -544,23 +498,23 @@ SELECT
   cjc.total_dbus,
   cjc.total_cost_usd
 
-FROM LIVE.cluster_job_run_cost_v cjc
+FROM cluster_job_run_cost_v cjc
 
-LEFT JOIN LIVE.cluster_config_latest_v cc
+LEFT JOIN cluster_config_latest_v cc
   ON  cjc.cluster_id   = cc.cluster_id
   AND cjc.workspace_id = cc.workspace_id
 
-LEFT JOIN LIVE.job_config_latest_v j
+LEFT JOIN job_config_latest_v j
   ON  cjc.job_id       = j.job_id
   AND cjc.workspace_id = j.workspace_id
 
-LEFT JOIN LIVE.task_run_stats_v tr
+LEFT JOIN task_run_stats_v tr
   ON  cjc.cluster_id   = tr.cluster_id
   AND cjc.workspace_id = tr.workspace_id
   AND cjc.job_id       = tr.job_id
   AND cjc.job_run_id   = tr.job_run_id
 
-LEFT JOIN LIVE.job_run_timeline_v jrt
+LEFT JOIN job_run_timeline_v jrt
   ON  cjc.job_id       = jrt.job_id
   AND cjc.job_run_id   = jrt.job_run_id
   AND cjc.workspace_id = jrt.workspace_id
@@ -568,7 +522,7 @@ LEFT JOIN LIVE.job_run_timeline_v jrt
 
 
 -- =================================================================
--- 12. all_purpose_cluster_sizing_mv  [MATERIALIZED VIEW] — 최종 출력
+-- 12. all_purpose_cluster_sizing_mv  [TABLE] — 최종 출력
 -- =================================================================
 -- All-Purpose 클러스터 단위 Right Sizing 대상 식별.
 -- All-Purpose 클러스터는 여러 잡이 동일 클러스터를 공유하므로,
@@ -577,27 +531,7 @@ LEFT JOIN LIVE.job_run_timeline_v jrt
 -- job_run_cost_analysis_mv에서 cluster_source IN ('UI', 'API') 행만 추출.
 -- =================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW all_purpose_cluster_sizing_mv
-(
-  -- Sanity: All-Purpose MV에 데이터가 존재해야 함
-  CONSTRAINT dq_cluster_id_not_null EXPECT (cluster_id IS NOT NULL),
-  CONSTRAINT dq_cluster_source_is_ap EXPECT (cluster_source IN ('UI', 'API')),
-
-  -- DBU/Cost 정합성
-  CONSTRAINT dq_total_dbus_non_negative EXPECT (total_dbus >= 0),
-  CONSTRAINT dq_total_cost_non_negative EXPECT (total_cost_usd >= 0),
-  CONSTRAINT dq_cost_requires_dbus EXPECT (total_cost_usd = 0 OR total_dbus > 0),
-
-  -- Duration 정합성
-  CONSTRAINT dq_avg_duration_non_negative EXPECT (avg_run_duration_minutes IS NULL OR avg_run_duration_minutes >= 0),
-
-  -- Sizing recommendation 유효값
-  CONSTRAINT dq_valid_sizing EXPECT (sizing_recommendation IN (
-    'BURST_PATTERN', 'DEFINITE_DOWNSIZE', 'LIKELY_DOWNSIZE',
-    'CONSIDER_UPSIZE', 'IO_BOTTLENECK', 'APPROPRIATE'
-  ))
-)
-AS
+CREATE OR REPLACE TABLE all_purpose_cluster_sizing_mv AS
 WITH cluster_util AS (
   -- cluster 단위 utilization 집계 (instance_utilization_v에서 직접)
   SELECT
@@ -612,7 +546,7 @@ WITH cluster_util AS (
     ROUND(AVG(median_mem_util), 2)                  AS median_mem_util,
     ROUND(MAX(max_mem_util), 2)                     AS peak_mem_util,
     ROUND(AVG(stddev_mem_util), 2)                  AS avg_stddev_mem
-  FROM LIVE.instance_utilization_v
+  FROM instance_utilization_v
   GROUP BY workspace_id, cluster_id
 )
 SELECT
@@ -737,34 +671,14 @@ GROUP BY
 
 
 -- =================================================================
--- 13. job_compute_sizing_mv  [MATERIALIZED VIEW] — 최종 출력
+-- 13. job_compute_sizing_mv  [TABLE] — 최종 출력
 -- =================================================================
 -- Job Compute 단위 Right Sizing 대상 식별.
 -- Job Compute는 잡과 클러스터가 1:1 매핑이므로 per-job 권고가 정확하다.
 -- job_run_cost_analysis_mv에서 cluster_source = 'JOB' 행만 추출.
 -- =================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW job_compute_sizing_mv
-(
-  -- Sanity: Job Compute 필수 키
-  CONSTRAINT dq_job_id_not_null EXPECT (job_id IS NOT NULL),
-  CONSTRAINT dq_cluster_source_is_job EXPECT (cluster_source = 'JOB'),
-
-  -- DBU/Cost 정합성
-  CONSTRAINT dq_total_dbus_non_negative EXPECT (total_dbus >= 0),
-  CONSTRAINT dq_total_cost_non_negative EXPECT (total_cost_usd >= 0),
-  CONSTRAINT dq_cost_requires_dbus EXPECT (total_cost_usd = 0 OR total_dbus > 0),
-
-  -- Duration 정합성
-  CONSTRAINT dq_avg_duration_non_negative EXPECT (avg_run_duration_minutes IS NULL OR avg_run_duration_minutes >= 0),
-
-  -- Sizing recommendation 유효값
-  CONSTRAINT dq_valid_sizing EXPECT (sizing_recommendation IN (
-    'BURST_PATTERN', 'DEFINITE_DOWNSIZE', 'LIKELY_DOWNSIZE',
-    'CONSIDER_UPSIZE', 'IO_BOTTLENECK', 'APPROPRIATE'
-  ))
-)
-AS
+CREATE OR REPLACE TABLE job_compute_sizing_mv AS
 WITH cluster_util AS (
   SELECT
     workspace_id, cluster_id,
@@ -778,7 +692,7 @@ WITH cluster_util AS (
     ROUND(AVG(median_mem_util), 2)                  AS median_mem_util,
     ROUND(MAX(max_mem_util), 2)                     AS peak_mem_util,
     ROUND(AVG(stddev_mem_util), 2)                  AS avg_stddev_mem
-  FROM LIVE.instance_utilization_v
+  FROM instance_utilization_v
   GROUP BY workspace_id, cluster_id
 )
 SELECT
@@ -904,7 +818,7 @@ GROUP BY
 
 
 -- =================================================================
--- 11. right_sizing_analysis_mv  [MATERIALIZED VIEW] — 하위호환 UNION
+-- 11. right_sizing_analysis_mv  [TABLE] — 하위호환 UNION
 -- =================================================================
 -- MV 12 (All-Purpose, per-cluster) + MV 13 (Job Compute, per-job)의
 -- UNION ALL. 대시보드(6.right_sizing_targets)의 하위호환성을 위해 유지.
@@ -912,21 +826,7 @@ GROUP BY
 -- Job Compute 행은 job_count를 NULL로 채운다.
 -- =================================================================
 
-CREATE OR REFRESH MATERIALIZED VIEW right_sizing_analysis_mv
-(
-  -- Sanity
-  CONSTRAINT dq_cluster_id_not_null EXPECT (cluster_id IS NOT NULL),
-  CONSTRAINT dq_compute_type_valid EXPECT (compute_type IN ('All-Purpose', 'Job Compute')),
-
-  -- DBU/Cost 정합성
-  CONSTRAINT dq_total_dbus_non_negative EXPECT (total_dbus >= 0),
-  CONSTRAINT dq_total_cost_non_negative EXPECT (total_cost_usd >= 0),
-
-  -- All-Purpose는 job_id NULL, Job Compute는 job_count NULL
-  CONSTRAINT dq_ap_job_id_null EXPECT (compute_type != 'All-Purpose' OR job_id IS NULL),
-  CONSTRAINT dq_jc_job_count_null EXPECT (compute_type != 'Job Compute' OR job_count IS NULL)
-)
-AS
+CREATE OR REPLACE TABLE right_sizing_analysis_mv AS
 -- All-Purpose: per-cluster, 잡 특정 컬럼은 NULL
 SELECT
   workspace_id,
@@ -965,7 +865,7 @@ SELECT
   sizing_recommendation,
   recommendation_detail,
   estimated_savings_usd
-FROM LIVE.all_purpose_cluster_sizing_mv
+FROM all_purpose_cluster_sizing_mv
 
 UNION ALL
 
@@ -1007,5 +907,29 @@ SELECT
   sizing_recommendation,
   recommendation_detail,
   estimated_savings_usd
-FROM LIVE.job_compute_sizing_mv
+FROM job_compute_sizing_mv
 ;
+"""
+SQL_SCRIPT = SQL_SCRIPT.replace("${workspace_id}", WORKSPACE_ID)
+
+stmts = SQL_SCRIPT.split(";")
+ran = 0
+for st in stmts:
+    body = "\n".join(l for l in st.split("\n") if not l.strip().startswith("--")).strip()
+    if not body:
+        continue
+    m = re.search(r"(?:TEMPORARY VIEW|REPLACE TABLE)\s+(\w+)", body)
+    label = m.group(1) if m else body[:40]
+    print(f"-> {label}")
+    spark.sql(body)
+    ran += 1
+print(f"done: executed {ran} statements; 5 analysis tables in {CATALOG}.{SCHEMA}")
+
+# COMMAND ----------
+
+for t in ["instance_workload_analysis_mv", "job_run_cost_analysis_mv",
+          "all_purpose_cluster_sizing_mv", "job_compute_sizing_mv", "right_sizing_analysis_mv"]:
+    try:
+        print(t, "rows:", spark.table(f"{CATALOG}.{SCHEMA}.{t}").count())
+    except Exception as e:
+        print(t, "ERROR:", str(e)[:120])

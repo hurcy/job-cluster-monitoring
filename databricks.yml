@@ -8,11 +8,8 @@ variables:
   catalog:
     description: "Unity Catalog 카탈로그 이름"
     default: "hurcy"
-  system_copies_schema:
-    description: "시스템 테이블 MV 사본 스키마 (system_table_copies 파이프라인 출력)"
-    default: "default"
   analytics_schema:
-    description: "분석 MV 출력 스키마 (instance_workload_profiles 파이프라인 출력)"
+    description: "분석 결과 출력 스키마 (Spill 뷰 + Right-Sizing 테이블)"
     default: "test"
   workspace_id:
     description: "분석 대상 워크스페이스 ID"
