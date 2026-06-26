@@ -199,7 +199,7 @@
       "name": "ds-job-detail",
       "displayName": "Classic · Job Recommendation Detail",
       "queryLines": [
-        "SELECT CAST(r.run_start_time AS DATE) AS last_run_date, CONCAT('<a href=\"https://adb-984752964297111.11.azuredatabricks.net/jobs/', r.job_id, '\">', r.job_id, '</a>') AS job_id, COALESCE(r.job_name, CONCAT('Job ', r.job_id)) AS job_name, r.sizing_recommendation, r.owned_by, r.worker_node_type, COALESCE(CAST(r.configured_workers AS STRING), CONCAT(CAST(r.min_autoscale_workers AS STRING), '-', CAST(r.max_autoscale_workers AS STRING))) AS workers_config, r.run_count, ROUND(r.avg_cpu_util, 1) AS avg_cpu_pct, ROUND(r.avg_mem_util, 1) AS avg_mem_pct, ROUND(r.total_cost_usd, 2) AS total_cost_usd, ROUND(r.estimated_savings_usd, 2) AS estimated_savings_usd, r.recommendation_detail FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') r WHERE r.compute_type = 'Job Compute' ORDER BY r.total_cost_usd DESC"
+        "SELECT CAST(r.run_start_time AS DATE) AS last_run_date, r.job_id, COALESCE(r.job_name, CONCAT('Job ', r.job_id)) AS job_name, r.sizing_recommendation, r.owned_by, r.worker_node_type, COALESCE(CAST(r.configured_workers AS STRING), CONCAT(CAST(r.min_autoscale_workers AS STRING), '-', CAST(r.max_autoscale_workers AS STRING))) AS workers_config, r.run_count, ROUND(r.avg_cpu_util, 1) AS avg_cpu_pct, ROUND(r.avg_mem_util, 1) AS avg_mem_pct, ROUND(r.total_cost_usd, 2) AS total_cost_usd, ROUND(r.estimated_savings_usd, 2) AS estimated_savings_usd, r.recommendation_detail FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') r WHERE r.compute_type = 'Job Compute' ORDER BY r.total_cost_usd DESC"
       ],
       "parameters": [
         {
@@ -277,7 +277,7 @@
       "name": "ds-srv-detail",
       "displayName": "Serverless · Job Run Detail",
       "queryLines": [
-        "SELECT CONCAT('<a href=\"https://adb-984752964297111.11.azuredatabricks.net/jobs/', job_id, '\">', job_id, '</a>') AS job_id, COALESCE(MAX(job_name), CONCAT('Job ', job_id)) AS job_label, MAX(DATE(run_start_time)) AS run_start_time, COUNT(DISTINCT job_run_id) AS run_count, ROUND(AVG(run_duration_minutes), 1) AS avg_duration_min, ROUND(SUM(total_dbus), 2) AS total_dbus, ROUND(SUM(total_cost_usd), 2) AS total_cost FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') WHERE is_serverless = true GROUP BY job_id ORDER BY total_cost DESC LIMIT 200"
+        "SELECT job_id, COALESCE(MAX(job_name), CONCAT('Job ', job_id)) AS job_label, MAX(DATE(run_start_time)) AS run_start_time, COUNT(DISTINCT job_run_id) AS run_count, ROUND(AVG(run_duration_minutes), 1) AS avg_duration_min, ROUND(SUM(total_dbus), 2) AS total_dbus, ROUND(SUM(total_cost_usd), 2) AS total_cost FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') WHERE is_serverless = true GROUP BY job_id ORDER BY total_cost DESC LIMIT 200"
       ],
       "parameters": [
         {
@@ -1869,8 +1869,12 @@
                     "fieldName": "job_id",
                     "displayName": "Job ID",
                     "type": "string",
-                    "displayAs": "string",
-                    "allowHTML": true,
+                    "displayAs": "link",
+                    "linkUrlTemplate": "https://adb-984752964297111.11.azuredatabricks.net/jobs/{{@}}",
+                    "linkTextTemplate": "{{@}}",
+                    "linkTitleTemplate": "{{@}}",
+                    "linkOpenInNewTab": true,
+                    "allowHTML": false,
                     "visible": true
                   },
                   {
@@ -2048,8 +2052,12 @@
                     "fieldName": "job_id",
                     "displayName": "Job ID",
                     "type": "string",
-                    "displayAs": "string",
-                    "allowHTML": true,
+                    "displayAs": "link",
+                    "linkUrlTemplate": "https://adb-984752964297111.11.azuredatabricks.net/jobs/{{@}}",
+                    "linkTextTemplate": "{{@}}",
+                    "linkTitleTemplate": "{{@}}",
+                    "linkOpenInNewTab": true,
+                    "allowHTML": false,
                     "visible": true
                   },
                   {
