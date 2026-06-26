@@ -6,14 +6,14 @@
 # MAGIC `p_catalog`/`p_schema` parameter default, the catalog/schema global filters, and the
 # MAGIC driver dataset) to a given `catalog.schema`. Idempotent.
 # MAGIC
-# MAGIC **Dual-mode — same file runs in two places:**
-# MAGIC - **In the Databricks workspace** (this notebook): set the widgets `catalog`, `schema`,
-# MAGIC   `dashboard_id` (from the dashboard URL `.../dashboardsv3/<id>/...`), and optional
-# MAGIC   `publish_warehouse_id`, then **Run All**. It fetches the deployed Lakeview dashboard via
-# MAGIC   the API, retargets it, **updates** it, and **publishes**.
-# MAGIC - **Locally** (`python3 build_dashboard.py`): reads `catalog`/`analytics_schema` from
-# MAGIC   `databricks.yml` and rewrites `dashboard/Job Cluster Monitoring Dashboard.lvdash.json`
-# MAGIC   in place (for `databricks bundle deploy`). `CATALOG=…/SCHEMA=…/OUT=…` env vars override.
+# MAGIC **Config comes from `databricks.yml` variables — no widgets.** Reads
+# MAGIC `variables.catalog.default` and `variables.analytics_schema.default` from
+# MAGIC `databricks.yml` and rewrites `dashboard/Job Cluster Monitoring Dashboard.lvdash.json`
+# MAGIC in place. `databricks bundle deploy` then deploys the retargeted dashboard — the
+# MAGIC warehouse (`${var.warehouse_id}`) and publish are handled by `resources/dashboard.yml`.
+# MAGIC `CATALOG=…/SCHEMA=…/OUT=…` env vars override the `databricks.yml` defaults.
+# MAGIC
+# MAGIC Run with `python3 build_dashboard.py` (or, in a notebook, **Run All**).
 
 # COMMAND ----------
 
@@ -221,72 +221,44 @@ ORDER BY e.event_time DESC
 # COMMAND ----------
 
 
-def _in_databricks():
+# ===== Read databricks.yml variables → rewrite the .lvdash.json in place =====
+# No widgets. catalog/schema come from databricks.yml (CATALOG/SCHEMA/OUT env vars override).
+# `databricks bundle deploy` then deploys the retargeted file (resources/dashboard.yml
+# supplies the warehouse via ${var.warehouse_id} and publishes).
+
+
+def _repo_root():
+    """Repo root. Uses this file's location for `python3 build_dashboard.py`; falls
+    back to CWD in a notebook where __file__ is undefined."""
     try:
-        dbutils  # noqa: F821  (injected in Databricks notebooks)
-        return True
+        return os.path.dirname(os.path.abspath(__file__))
     except NameError:
-        return False
+        return os.getcwd()
 
 
-if _in_databricks():
-    # ===== WORKSPACE MODE: widgets → Lakeview API (fetch → retarget → update → publish) =====
-    dbutils.widgets.text("catalog", "hurcy", "Target catalog")
-    dbutils.widgets.text("schema", "test", "Target schema (analytics)")
-    dbutils.widgets.text("dashboard_id", "", "Lakeview dashboard id (from the dashboard URL)")
-    dbutils.widgets.text("publish_warehouse_id", "", "Warehouse id to publish (blank = keep current)")
+def bundle_var(name, fallback, yml_path):
+    """Read variables.<name>.default from databricks.yml (PyYAML if available, else regex)."""
+    try:
+        import yaml
+        v = yaml.safe_load(open(yml_path)).get("variables", {}).get(name) or {}
+        return v.get("default", fallback)
+    except Exception:
+        t = open(yml_path).read()
+        m = re.search(rf'^  {re.escape(name)}:[^\n]*\n(?:^    [^\n]*\n)*?^    default:\s*"?([^"\n]+?)"?\s*$',
+                      t, re.M)
+        return m.group(1) if m else fallback
 
-    CATALOG = dbutils.widgets.get("catalog").strip()
-    SCHEMA = dbutils.widgets.get("schema").strip()
-    DID = dbutils.widgets.get("dashboard_id").strip()
-    PUB = dbutils.widgets.get("publish_warehouse_id").strip()
-    assert DID, "Set the 'dashboard_id' widget (the id in the dashboard URL .../dashboardsv3/<id>/...)."
 
-    from databricks.sdk import WorkspaceClient
-    w = WorkspaceClient()
+HERE = _repo_root()
+DASH = os.path.join(HERE, "dashboard", "Job Cluster Monitoring Dashboard.lvdash.json")
+YML = os.path.join(HERE, "databricks.yml")
+OUT = os.environ.get("OUT", DASH)
 
-    cur = w.api_client.do("GET", f"/api/2.0/lakeview/dashboards/{DID}")
-    d = transform(json.loads(cur["serialized_dashboard"]), CATALOG, SCHEMA)
+CATALOG = os.environ.get("CATALOG") or bundle_var("catalog", "hurcy", YML)
+SCHEMA = os.environ.get("SCHEMA") or bundle_var("analytics_schema", "test", YML)
+print(f"target catalog.schema = {CATALOG}.{SCHEMA}  "
+      f"(source: {'env override' if os.environ.get('CATALOG') else 'databricks.yml'})")
 
-    body = {"display_name": cur["display_name"],
-            "serialized_dashboard": json.dumps(d, ensure_ascii=False),
-            "warehouse_id": cur.get("warehouse_id", "")}
-    if cur.get("etag"):
-        body["etag"] = cur["etag"]
-    w.api_client.do("PATCH", f"/api/2.0/lakeview/dashboards/{DID}", body=body)
-
-    wh = PUB or cur.get("warehouse_id", "")
-    if wh:
-        w.api_client.do("POST", f"/api/2.0/lakeview/dashboards/{DID}/published",
-                        body={"embed_credentials": True, "warehouse_id": wh})
-        print(f"updated + published dashboard {DID} → {CATALOG}.{SCHEMA}")
-    else:
-        print(f"updated dashboard {DID} → {CATALOG}.{SCHEMA} (no warehouse set, skipped publish)")
-
-else:
-    # ===== LOCAL MODE: read databricks.yml + .lvdash.json file → write file (for bundle deploy) =====
-    HERE = os.path.dirname(os.path.abspath(__file__))   # repo root — this script lives here
-    DASH = os.path.join(HERE, "dashboard", "Job Cluster Monitoring Dashboard.lvdash.json")
-    YML = os.path.join(HERE, "databricks.yml")
-    OUT = os.environ.get("OUT", DASH)
-
-    def bundle_var(name, fallback):
-        """Read variables.<name>.default from databricks.yml (PyYAML if available, else regex)."""
-        try:
-            import yaml
-            v = yaml.safe_load(open(YML)).get("variables", {}).get(name) or {}
-            return v.get("default", fallback)
-        except Exception:
-            t = open(YML).read()
-            m = re.search(rf'^  {re.escape(name)}:[^\n]*\n(?:^    [^\n]*\n)*?^    default:\s*"?([^"\n]+?)"?\s*$',
-                          t, re.M)
-            return m.group(1) if m else fallback
-
-    CATALOG = os.environ.get("CATALOG") or bundle_var("catalog", "hurcy")
-    SCHEMA = os.environ.get("SCHEMA") or bundle_var("analytics_schema", "test")
-    print(f"target catalog.schema = {CATALOG}.{SCHEMA}  "
-          f"(source: {'env override' if os.environ.get('CATALOG') else 'databricks.yml'})")
-
-    d = transform(json.load(open(DASH)), CATALOG, SCHEMA)
-    json.dump(d, open(OUT, "w"), indent=2, ensure_ascii=False)
-    print(f"OK target={CATALOG}.{SCHEMA}  datasets={len(d['datasets'])}  pages={len(d['pages'])}  -> {OUT}")
+d = transform(json.load(open(DASH)), CATALOG, SCHEMA)
+json.dump(d, open(OUT, "w"), indent=2, ensure_ascii=False)
+print(f"OK target={CATALOG}.{SCHEMA}  datasets={len(d['datasets'])}  pages={len(d['pages'])}  -> {OUT}")
