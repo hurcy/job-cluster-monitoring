@@ -122,11 +122,17 @@ SELECT
       THEN 'Under-utilized'
     ELSE 'Balanced - Moderate Utilization'
   END AS workload_profile
-FROM system.compute.node_timeline
-WHERE workspace_id = '${workspace_id}'
-  AND driver = FALSE
-  AND start_time >= DATE_SUB(CURRENT_DATE(), 90)
-  AND start_time <  CURRENT_DATE()
+FROM (
+  SELECT *,
+         MAX(CASE WHEN driver = FALSE THEN 1 ELSE 0 END)
+           OVER (PARTITION BY workspace_id, cluster_id) AS has_worker
+  FROM system.compute.node_timeline
+  WHERE workspace_id = '${workspace_id}'
+    AND start_time >= DATE_SUB(CURRENT_DATE(), 90)
+    AND start_time <  CURRENT_DATE()
+)
+-- 멀티노드: 워커(driver=FALSE)만. 싱글노드(워커 없음): 드라이버 포함 → util 측정.
+WHERE driver = FALSE OR has_worker = 0
 GROUP BY workspace_id, cluster_id, driver, node_type, instance_id;
 
 
@@ -198,8 +204,13 @@ SELECT
   COLLECT_SET(termination_code)     AS termination_codes
 FROM exploded_task_runs_v
 GROUP BY workspace_id, cluster_id, job_id, job_run_id
-HAVING ARRAY_CONTAINS(COLLECT_SET(result_state), 'SUCCESS')
-    OR ARRAY_CONTAINS(COLLECT_SET(termination_code), 'SUCCESS');
+HAVING ARRAY_CONTAINS(COLLECT_SET(result_state), 'SUCCEEDED')
+   -- 온전히 성공한 run만: SUCCEEDED 태스크가 있고 실패 태스크가 하나도 없음.
+   AND SIZE(ARRAY_INTERSECT(
+         COLLECT_SET(result_state),
+         ARRAY('FAILED','ERROR','TIMEDOUT','UPSTREAM_FAILED',
+               'UPSTREAM_CANCELED','INTERNAL_ERROR','MAXIMUM_CONCURRENT_RUNS_REACHED')
+       )) = 0;
 
 
 -- =================================================================
@@ -548,6 +559,14 @@ WITH cluster_util AS (
     ROUND(AVG(stddev_mem_util), 2)                  AS avg_stddev_mem
   FROM instance_utilization_v
   GROUP BY workspace_id, cluster_id
+),
+cluster_run_totals AS (
+  -- 분석 윈도우(90일) 전체 기준 cluster 실행 횟수. sizing 판정의 표본 게이트.
+  SELECT workspace_id, cluster_id,
+         COUNT(DISTINCT job_run_id) AS window_run_count
+  FROM job_run_cost_analysis_mv
+  WHERE is_serverless = false AND cluster_source IN ('UI', 'API')
+  GROUP BY workspace_id, cluster_id
 )
 SELECT
   cjc.workspace_id,
@@ -586,68 +605,72 @@ SELECT
   ROUND(SUM(cjc.total_cost_usd), 2)                           AS total_cost_usd,
 
   CASE
-    WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+    WHEN apt.window_run_count >= 3
      AND cu.median_cpu_util < 30
      AND cu.median_mem_util < 40
      AND (cu.avg_stddev_cpu > 20 OR cu.peak_cpu_util > 80
       OR  cu.avg_stddev_mem > 20 OR cu.peak_mem_util > 80)
       THEN 'BURST_PATTERN'
-    WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+    WHEN apt.window_run_count >= 3
      AND cu.avg_cpu_util < 20
      AND cu.avg_mem_util < 30
      AND cu.median_cpu_util < 15
      AND cu.avg_stddev_cpu < 15
       THEN 'DEFINITE_DOWNSIZE'
-    WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+    WHEN apt.window_run_count >= 3
      AND cu.avg_cpu_util < 30 AND cu.avg_mem_util < 40
      AND cu.median_cpu_util < 25 AND cu.median_mem_util < 35
       THEN 'LIKELY_DOWNSIZE'
-    WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+    WHEN apt.window_run_count >= 3
      AND (cu.peak_cpu_util > 85 OR cu.peak_mem_util > 85)
       THEN 'CONSIDER_UPSIZE'
     WHEN cu.avg_cpu_wait > 10
       THEN 'IO_BOTTLENECK'
     WHEN cu.avg_cpu_util IS NULL OR cu.avg_mem_util IS NULL
       THEN 'NO_UTIL_DATA'
+    WHEN COALESCE(apt.window_run_count, 0) < 3
+      THEN 'INSUFFICIENT_RUNS'
     ELSE 'APPROPRIATE'
   END AS sizing_recommendation,
 
   CASE
-    WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+    WHEN apt.window_run_count >= 3
      AND cu.median_cpu_util < 30 AND cu.median_mem_util < 40
      AND (cu.avg_stddev_cpu > 20 OR cu.peak_cpu_util > 80
       OR  cu.avg_stddev_mem > 20 OR cu.peak_mem_util > 80)
       THEN 'Burst 패턴 감지: median은 낮지만 순간 부하가 높아 현재 크기 유지 권고. Autoscaling 활용 검토.'
-    WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+    WHEN apt.window_run_count >= 3
      AND cu.avg_cpu_util < 20 AND cu.avg_mem_util < 30
      AND cu.median_cpu_util < 15 AND cu.avg_stddev_cpu < 15
       THEN '워커 수 50% 감소 또는 더 작은 인스턴스 타입으로 전환 강력 권고. median/P95/분산 모두 매우 낮음.'
-    WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+    WHEN apt.window_run_count >= 3
      AND cu.avg_cpu_util < 30 AND cu.avg_mem_util < 40
      AND cu.median_cpu_util < 25 AND cu.median_mem_util < 35
       THEN '워커 수 30% 감소 또는 인스턴스 타입 축소 검토. 평균·median 활용률이 지속적으로 낮음.'
-    WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+    WHEN apt.window_run_count >= 3
      AND (cu.peak_cpu_util > 85 OR cu.peak_mem_util > 85)
       THEN '리소스 한계 근접. 워커 추가 또는 더 큰 인스턴스 타입 검토 필요.'
     WHEN cu.avg_cpu_wait > 10
       THEN 'I/O 병목 감지. 스토리지 최적화 또는 EBS 성능 개선 권고.'
     WHEN cu.avg_cpu_util IS NULL OR cu.avg_mem_util IS NULL
       THEN '활용률(CPU/Mem) 데이터 없음 — sizing 판정 보류. node_timeline 수집 여부 확인.'
+    WHEN COALESCE(apt.window_run_count, 0) < 3
+      THEN '최근 90일 실행 3회 미만 — 표본 부족으로 sizing 판정 보류. 실행 누적 후 재평가.'
     ELSE '현재 구성 적절.'
   END AS recommendation_detail,
 
   ROUND(
     CASE
-      WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+      WHEN apt.window_run_count >= 3
        AND cu.median_cpu_util < 30 AND cu.median_mem_util < 40
        AND (cu.avg_stddev_cpu > 20 OR cu.peak_cpu_util > 80
         OR  cu.avg_stddev_mem > 20 OR cu.peak_mem_util > 80)
         THEN 0
-      WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+      WHEN apt.window_run_count >= 3
        AND cu.avg_cpu_util < 20 AND cu.avg_mem_util < 30
        AND cu.median_cpu_util < 15 AND cu.avg_stddev_cpu < 15
         THEN SUM(cjc.total_cost_usd) * 0.5
-      WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+      WHEN apt.window_run_count >= 3
        AND cu.avg_cpu_util < 30 AND cu.avg_mem_util < 40
        AND cu.median_cpu_util < 25 AND cu.median_mem_util < 35
         THEN SUM(cjc.total_cost_usd) * 0.3
@@ -659,6 +682,9 @@ FROM job_run_cost_analysis_mv cjc
 LEFT JOIN cluster_util cu
   ON  cjc.cluster_id   = cu.cluster_id
   AND cjc.workspace_id = cu.workspace_id
+LEFT JOIN cluster_run_totals apt
+  ON  cjc.workspace_id = apt.workspace_id
+  AND cjc.cluster_id   = apt.cluster_id
 WHERE cjc.is_serverless = false
   AND cjc.cluster_source IN ('UI', 'API')
 GROUP BY
@@ -670,7 +696,8 @@ GROUP BY
   cu.avg_cpu_util, cu.median_cpu_util, cu.peak_cpu_util,
   cu.avg_stddev_cpu, cu.avg_cpu_wait,
   cu.avg_mem_util, cu.median_mem_util, cu.peak_mem_util,
-  cu.avg_stddev_mem, cu.instance_count
+  cu.avg_stddev_mem, cu.instance_count,
+  apt.window_run_count
 ;
 
 
@@ -698,6 +725,14 @@ WITH cluster_util AS (
     ROUND(AVG(stddev_mem_util), 2)                  AS avg_stddev_mem
   FROM instance_utilization_v
   GROUP BY workspace_id, cluster_id
+),
+job_run_totals AS (
+  -- 분석 윈도우(90일) 전체 기준 (job × cluster) 실행 횟수. sizing 판정의 표본 게이트.
+  SELECT workspace_id, job_id, cluster_id,
+         COUNT(DISTINCT job_run_id) AS window_run_count
+  FROM job_run_cost_analysis_mv
+  WHERE is_serverless = false AND cluster_source = 'JOB'
+  GROUP BY workspace_id, job_id, cluster_id
 )
 SELECT
   cjc.workspace_id,
@@ -736,68 +771,72 @@ SELECT
   ROUND(SUM(cjc.total_cost_usd), 2)                           AS total_cost_usd,
 
   CASE
-    WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+    WHEN jrt.window_run_count >= 3
      AND cu.median_cpu_util < 30
      AND cu.median_mem_util < 40
      AND (cu.avg_stddev_cpu > 20 OR cu.peak_cpu_util > 80
       OR  cu.avg_stddev_mem > 20 OR cu.peak_mem_util > 80)
       THEN 'BURST_PATTERN'
-    WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+    WHEN jrt.window_run_count >= 3
      AND cu.avg_cpu_util < 20
      AND cu.avg_mem_util < 30
      AND cu.median_cpu_util < 15
      AND cu.avg_stddev_cpu < 15
       THEN 'DEFINITE_DOWNSIZE'
-    WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+    WHEN jrt.window_run_count >= 3
      AND cu.avg_cpu_util < 30 AND cu.avg_mem_util < 40
      AND cu.median_cpu_util < 25 AND cu.median_mem_util < 35
       THEN 'LIKELY_DOWNSIZE'
-    WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+    WHEN jrt.window_run_count >= 3
      AND (cu.peak_cpu_util > 85 OR cu.peak_mem_util > 85)
       THEN 'CONSIDER_UPSIZE'
     WHEN cu.avg_cpu_wait > 10
       THEN 'IO_BOTTLENECK'
     WHEN cu.avg_cpu_util IS NULL OR cu.avg_mem_util IS NULL
       THEN 'NO_UTIL_DATA'
+    WHEN COALESCE(jrt.window_run_count, 0) < 3
+      THEN 'INSUFFICIENT_RUNS'
     ELSE 'APPROPRIATE'
   END AS sizing_recommendation,
 
   CASE
-    WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+    WHEN jrt.window_run_count >= 3
      AND cu.median_cpu_util < 30 AND cu.median_mem_util < 40
      AND (cu.avg_stddev_cpu > 20 OR cu.peak_cpu_util > 80
       OR  cu.avg_stddev_mem > 20 OR cu.peak_mem_util > 80)
       THEN 'Burst 패턴 감지: median은 낮지만 순간 부하가 높아 현재 크기 유지 권고. Autoscaling 활용 검토.'
-    WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+    WHEN jrt.window_run_count >= 3
      AND cu.avg_cpu_util < 20 AND cu.avg_mem_util < 30
      AND cu.median_cpu_util < 15 AND cu.avg_stddev_cpu < 15
       THEN '워커 수 50% 감소 또는 더 작은 인스턴스 타입으로 전환 강력 권고. median/P95/분산 모두 매우 낮음.'
-    WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+    WHEN jrt.window_run_count >= 3
      AND cu.avg_cpu_util < 30 AND cu.avg_mem_util < 40
      AND cu.median_cpu_util < 25 AND cu.median_mem_util < 35
       THEN '워커 수 30% 감소 또는 인스턴스 타입 축소 검토. 평균·median 활용률이 지속적으로 낮음.'
-    WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+    WHEN jrt.window_run_count >= 3
      AND (cu.peak_cpu_util > 85 OR cu.peak_mem_util > 85)
       THEN '리소스 한계 근접. 워커 추가 또는 더 큰 인스턴스 타입 검토 필요.'
     WHEN cu.avg_cpu_wait > 10
       THEN 'I/O 병목 감지. 스토리지 최적화 또는 EBS 성능 개선 권고.'
     WHEN cu.avg_cpu_util IS NULL OR cu.avg_mem_util IS NULL
       THEN '활용률(CPU/Mem) 데이터 없음 — sizing 판정 보류. node_timeline 수집 여부 확인.'
+    WHEN COALESCE(jrt.window_run_count, 0) < 3
+      THEN '최근 90일 실행 3회 미만 — 표본 부족으로 sizing 판정 보류. 실행 누적 후 재평가.'
     ELSE '현재 구성 적절.'
   END AS recommendation_detail,
 
   ROUND(
     CASE
-      WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+      WHEN jrt.window_run_count >= 3
        AND cu.median_cpu_util < 30 AND cu.median_mem_util < 40
        AND (cu.avg_stddev_cpu > 20 OR cu.peak_cpu_util > 80
         OR  cu.avg_stddev_mem > 20 OR cu.peak_mem_util > 80)
         THEN 0
-      WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+      WHEN jrt.window_run_count >= 3
        AND cu.avg_cpu_util < 20 AND cu.avg_mem_util < 30
        AND cu.median_cpu_util < 15 AND cu.avg_stddev_cpu < 15
         THEN SUM(cjc.total_cost_usd) * 0.5
-      WHEN COUNT(DISTINCT cjc.job_run_id) >= 3
+      WHEN jrt.window_run_count >= 3
        AND cu.avg_cpu_util < 30 AND cu.avg_mem_util < 40
        AND cu.median_cpu_util < 25 AND cu.median_mem_util < 35
         THEN SUM(cjc.total_cost_usd) * 0.3
@@ -809,6 +848,10 @@ FROM job_run_cost_analysis_mv cjc
 LEFT JOIN cluster_util cu
   ON  cjc.cluster_id   = cu.cluster_id
   AND cjc.workspace_id = cu.workspace_id
+LEFT JOIN job_run_totals jrt
+  ON  cjc.workspace_id = jrt.workspace_id
+  AND cjc.job_id       = jrt.job_id
+  AND cjc.cluster_id   = jrt.cluster_id
 WHERE cjc.is_serverless = false
   AND cjc.cluster_source = 'JOB'
 GROUP BY
@@ -821,7 +864,8 @@ GROUP BY
   cu.avg_cpu_util, cu.median_cpu_util, cu.peak_cpu_util,
   cu.avg_stddev_cpu, cu.avg_cpu_wait,
   cu.avg_mem_util, cu.median_mem_util, cu.peak_mem_util,
-  cu.avg_stddev_mem, cu.instance_count
+  cu.avg_stddev_mem, cu.instance_count,
+  jrt.window_run_count
 ;
 
 

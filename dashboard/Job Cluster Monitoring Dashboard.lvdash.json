@@ -157,45 +157,6 @@
       ]
     },
     {
-      "name": "ds-cpu-dist",
-      "displayName": "Overview · CPU Utilization Distribution",
-      "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, CASE WHEN avg_cpu_util IS NULL THEN 'No Data' WHEN avg_cpu_util < 20 THEN '<20%' WHEN avg_cpu_util < 40 THEN '20-40%' WHEN avg_cpu_util < 60 THEN '40-60%' WHEN avg_cpu_util < 80 THEN '60-80%' ELSE '>80%' END AS cpu_range, COUNT(*) AS job_count FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') WHERE compute_type = 'Job Compute' GROUP BY 1, 2 ORDER BY job_count DESC"
-      ],
-      "parameters": [
-        {
-          "displayName": "카탈로그",
-          "keyword": "p_catalog",
-          "dataType": "STRING",
-          "defaultSelection": {
-            "values": {
-              "dataType": "STRING",
-              "values": [
-                {
-                  "value": "hurcy"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "displayName": "스키마",
-          "keyword": "p_schema",
-          "dataType": "STRING",
-          "defaultSelection": {
-            "values": {
-              "dataType": "STRING",
-              "values": [
-                {
-                  "value": "test"
-                }
-              ]
-            }
-          }
-        }
-      ]
-    },
-    {
       "name": "ds-instance-type",
       "displayName": "Overview · Instance Type Cost Breakdown",
       "queryLines": [
@@ -515,45 +476,6 @@
       ]
     },
     {
-      "name": "ds-mem-dist",
-      "displayName": "Overview · Memory Utilization Distribution",
-      "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, CASE WHEN avg_mem_util IS NULL THEN 'No Data' WHEN avg_mem_util < 20 THEN '<20%' WHEN avg_mem_util < 40 THEN '20-40%' WHEN avg_mem_util < 60 THEN '40-60%' WHEN avg_mem_util < 80 THEN '60-80%' ELSE '>80%' END AS mem_range, COUNT(*) AS job_count FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') WHERE compute_type = 'Job Compute' GROUP BY 1, 2 ORDER BY job_count DESC"
-      ],
-      "parameters": [
-        {
-          "displayName": "카탈로그",
-          "keyword": "p_catalog",
-          "dataType": "STRING",
-          "defaultSelection": {
-            "values": {
-              "dataType": "STRING",
-              "values": [
-                {
-                  "value": "hurcy"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "displayName": "스키마",
-          "keyword": "p_schema",
-          "dataType": "STRING",
-          "defaultSelection": {
-            "values": {
-              "dataType": "STRING",
-              "values": [
-                {
-                  "value": "test"
-                }
-              ]
-            }
-          }
-        }
-      ]
-    },
-    {
       "name": "ds-spill",
       "displayName": "Spill · per-statement",
       "queryLines": [
@@ -698,6 +620,45 @@
         "FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.expanded_disk_events') e\n",
         "LEFT JOIN IDENTIFIER(:p_catalog || '.' || :p_schema || '.cluster_names') n ON e.cluster_id = n.cluster_id\n",
         "ORDER BY e.event_time DESC\n"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ds-util-dist",
+      "displayName": "Overview · CPU/Mem Utilization (cross-filter)",
+      "queryLines": [
+        "SELECT DATE(run_start_time) AS run_start_time, job_id, CASE WHEN avg_cpu_util IS NULL THEN 'No Data' WHEN avg_cpu_util < 20 THEN '<20%' WHEN avg_cpu_util < 40 THEN '20-40%' WHEN avg_cpu_util < 60 THEN '40-60%' WHEN avg_cpu_util < 80 THEN '60-80%' ELSE '>80%' END AS cpu_range, CASE WHEN avg_mem_util IS NULL THEN 'No Data' WHEN avg_mem_util < 20 THEN '<20%' WHEN avg_mem_util < 40 THEN '20-40%' WHEN avg_mem_util < 60 THEN '40-60%' WHEN avg_mem_util < 80 THEN '60-80%' ELSE '>80%' END AS mem_range FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') WHERE compute_type = 'Job Compute'"
       ],
       "parameters": [
         {
@@ -929,23 +890,6 @@
                 }
               },
               {
-                "name": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a019edb3287be9fcec7f23_run_start_time",
-                "query": {
-                  "datasetName": "ds-cpu-dist",
-                  "fields": [
-                    {
-                      "name": "run_start_time",
-                      "expression": "`run_start_time`"
-                    },
-                    {
-                      "name": "run_start_time_associativity",
-                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
-                    }
-                  ],
-                  "disaggregated": false
-                }
-              },
-              {
                 "name": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a019f6902d857d6fb246e1_run_start_time",
                 "query": {
                   "datasetName": "ds-instance-type",
@@ -1082,23 +1026,6 @@
                 }
               },
               {
-                "name": "memdist_run_start_time",
-                "query": {
-                  "datasetName": "ds-mem-dist",
-                  "fields": [
-                    {
-                      "name": "run_start_time",
-                      "expression": "`run_start_time`"
-                    },
-                    {
-                      "name": "run_start_time_associativity",
-                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
-                    }
-                  ],
-                  "disaggregated": false
-                }
-              },
-              {
                 "name": "spill-filter_ds-spill_run_start_time",
                 "query": {
                   "datasetName": "ds-spill",
@@ -1136,6 +1063,23 @@
                 "name": "spill-filter_ds-expanded-disk_run_start_time",
                 "query": {
                   "datasetName": "ds-expanded-disk",
+                  "fields": [
+                    {
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
+                    },
+                    {
+                      "name": "run_start_time_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "utildist_run_start_time",
+                "query": {
+                  "datasetName": "ds-util-dist",
                   "fields": [
                     {
                       "name": "run_start_time",
@@ -1190,10 +1134,6 @@
                   },
                   {
                     "fieldName": "run_start_time",
-                    "queryName": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a019edb3287be9fcec7f23_run_start_time"
-                  },
-                  {
-                    "fieldName": "run_start_time",
                     "queryName": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a019f6902d857d6fb246e1_run_start_time"
                   },
                   {
@@ -1226,10 +1166,6 @@
                   },
                   {
                     "fieldName": "run_start_time",
-                    "queryName": "memdist_run_start_time"
-                  },
-                  {
-                    "fieldName": "run_start_time",
                     "queryName": "spill-filter_ds-spill_run_start_time"
                   },
                   {
@@ -1239,6 +1175,10 @@
                   {
                     "fieldName": "run_start_time",
                     "queryName": "spill-filter_ds-expanded-disk_run_start_time"
+                  },
+                  {
+                    "fieldName": "run_start_time",
+                    "queryName": "utildist_run_start_time"
                   }
                 ]
               }
@@ -1736,15 +1676,15 @@
               {
                 "name": "main_query",
                 "query": {
-                  "datasetName": "ds-cpu-dist",
+                  "datasetName": "ds-util-dist",
                   "fields": [
                     {
                       "name": "cpu_range",
                       "expression": "`cpu_range`"
                     },
                     {
-                      "name": "sum(job_count)",
-                      "expression": "SUM(`job_count`)"
+                      "name": "count(job_id)",
+                      "expression": "COUNT(`job_id`)"
                     }
                   ],
                   "disaggregated": false
@@ -1763,7 +1703,7 @@
                   "displayName": "CPU Utilization Range"
                 },
                 "y": {
-                  "fieldName": "sum(job_count)",
+                  "fieldName": "count(job_id)",
                   "scale": {
                     "type": "quantitative"
                   },
@@ -1939,15 +1879,15 @@
               {
                 "name": "main_query",
                 "query": {
-                  "datasetName": "ds-mem-dist",
+                  "datasetName": "ds-util-dist",
                   "fields": [
                     {
                       "name": "mem_range",
                       "expression": "`mem_range`"
                     },
                     {
-                      "name": "sum(job_count)",
-                      "expression": "SUM(`job_count`)"
+                      "name": "count(job_id)",
+                      "expression": "COUNT(`job_id`)"
                     }
                   ],
                   "disaggregated": false
@@ -1966,7 +1906,7 @@
                   "displayName": "Memory Utilization Range"
                 },
                 "y": {
-                  "fieldName": "sum(job_count)",
+                  "fieldName": "count(job_id)",
                   "scale": {
                     "type": "quantitative"
                   },
