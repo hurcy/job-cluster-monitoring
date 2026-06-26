@@ -220,13 +220,12 @@ ORDER BY e.event_time DESC
                     if sel is not None and fname in ("catalog", "schema"):
                         sel["values"] = [{"value": catalog if fname == "catalog" else schema}]
 
-    # ---------- inject workspace host into the Job ID HTML deep-link (ds-job-detail) ----------
-    # Idempotent: rewrites the host portion of the https://<host>/jobs/ link each run.
+    # ---------- inject workspace host into Job ID HTML deep-links (any dataset) ----------
+    # Idempotent: rewrites the host portion of every https://<host>/jobs/ link each run.
     if host:
         for ds in d["datasets"]:
-            if ds["name"] == "ds-job-detail":
-                ds["queryLines"] = [re.sub(r"https://[^/']+/jobs/", f"https://{host}/jobs/", line)
-                                    for line in ds["queryLines"]]
+            ds["queryLines"] = [re.sub(r"https://[^/'\"]+/jobs/", f"https://{host}/jobs/", line)
+                                for line in ds.get("queryLines", [])]
 
     return d
 
