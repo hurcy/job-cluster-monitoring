@@ -164,13 +164,16 @@ ORDER BY e.event_time DESC
         text("spilld-sec-2", [
             "### Actual EXPANDED_DISK events (durable log)",
             "_Cluster Events API 기반. Serverless 는 이벤트가 없고, 종료된 job 클러스터는 ~30일 후 purge 되므로 "
-            "초기에는 비어 있을 수 있다 — 매일 적재되며 시간이 지날수록 채워진다._"], 0, 19, 6, 2),
+            "초기에는 비어 있을 수 있다 — 매일 적재되며 시간이 지날수록 채워진다._",
+            "_**Cause** 는 Cluster Events API가 돌려주는 각 이벤트의 `details.cause` 값 그대로다(가공 없음). "
+            "주로 `DID_NOT_EXPAND_DISK` 에서 디스크 자동 확장이 안 된 사유가 채워지고, 정상 확장(`EXPANDED_DISK`)은 "
+            "비어 있을 수 있다. 원본 details 전체는 `expanded_disk_events.details_json` 컬럼에 보관된다._"], 0, 19, 6, 3),
         tbl("spilld-events", "ds-expanded-disk", [
             ("run_start_time", "Date"), ("event_time", "Event Time"), ("cluster_id", "Cluster ID"),
             ("cluster_name", "Cluster Name"), ("event_type", "Event"), ("instance_id", "Instance"),
             ("previous_disk_size", "Prev Disk"), ("disk_size", "New Disk"), ("free_space_bytes", "Free Bytes"),
             ("cause", "Cause")],
-            "EXPANDED_DISK / DID_NOT_EXPAND_DISK Events", 0, 21, 6, 6),
+            "EXPANDED_DISK / DID_NOT_EXPAND_DISK Events", 0, 22, 6, 6),
     ]}
 
     d["pages"].append(page1)

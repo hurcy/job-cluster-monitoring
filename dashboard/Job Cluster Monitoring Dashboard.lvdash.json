@@ -476,6 +476,45 @@
       ]
     },
     {
+      "name": "ds-util-dist",
+      "displayName": "Overview · CPU/Mem Utilization (cross-filter)",
+      "queryLines": [
+        "SELECT DATE(run_start_time) AS run_start_time, job_id, CASE WHEN avg_cpu_util IS NULL THEN 'No Data' WHEN avg_cpu_util < 20 THEN '<20%' WHEN avg_cpu_util < 40 THEN '20-40%' WHEN avg_cpu_util < 60 THEN '40-60%' WHEN avg_cpu_util < 80 THEN '60-80%' ELSE '>80%' END AS cpu_range, CASE WHEN avg_mem_util IS NULL THEN 'No Data' WHEN avg_mem_util < 20 THEN '<20%' WHEN avg_mem_util < 40 THEN '20-40%' WHEN avg_mem_util < 60 THEN '40-60%' WHEN avg_mem_util < 80 THEN '60-80%' ELSE '>80%' END AS mem_range FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') WHERE compute_type = 'Job Compute'"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "ds-spill",
       "displayName": "Spill · per-statement",
       "queryLines": [
@@ -620,45 +659,6 @@
         "FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.expanded_disk_events') e\n",
         "LEFT JOIN IDENTIFIER(:p_catalog || '.' || :p_schema || '.cluster_names') n ON e.cluster_id = n.cluster_id\n",
         "ORDER BY e.event_time DESC\n"
-      ],
-      "parameters": [
-        {
-          "displayName": "카탈로그",
-          "keyword": "p_catalog",
-          "dataType": "STRING",
-          "defaultSelection": {
-            "values": {
-              "dataType": "STRING",
-              "values": [
-                {
-                  "value": "hurcy"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "displayName": "스키마",
-          "keyword": "p_schema",
-          "dataType": "STRING",
-          "defaultSelection": {
-            "values": {
-              "dataType": "STRING",
-              "values": [
-                {
-                  "value": "test"
-                }
-              ]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "ds-util-dist",
-      "displayName": "Overview · CPU/Mem Utilization (cross-filter)",
-      "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, job_id, CASE WHEN avg_cpu_util IS NULL THEN 'No Data' WHEN avg_cpu_util < 20 THEN '<20%' WHEN avg_cpu_util < 40 THEN '20-40%' WHEN avg_cpu_util < 60 THEN '40-60%' WHEN avg_cpu_util < 80 THEN '60-80%' ELSE '>80%' END AS cpu_range, CASE WHEN avg_mem_util IS NULL THEN 'No Data' WHEN avg_mem_util < 20 THEN '<20%' WHEN avg_mem_util < 40 THEN '20-40%' WHEN avg_mem_util < 60 THEN '40-60%' WHEN avg_mem_util < 80 THEN '60-80%' ELSE '>80%' END AS mem_range FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') WHERE compute_type = 'Job Compute'"
       ],
       "parameters": [
         {
@@ -1026,6 +1026,23 @@
                 }
               },
               {
+                "name": "utildist_run_start_time",
+                "query": {
+                  "datasetName": "ds-util-dist",
+                  "fields": [
+                    {
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
+                    },
+                    {
+                      "name": "run_start_time_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
                 "name": "spill-filter_ds-spill_run_start_time",
                 "query": {
                   "datasetName": "ds-spill",
@@ -1063,23 +1080,6 @@
                 "name": "spill-filter_ds-expanded-disk_run_start_time",
                 "query": {
                   "datasetName": "ds-expanded-disk",
-                  "fields": [
-                    {
-                      "name": "run_start_time",
-                      "expression": "`run_start_time`"
-                    },
-                    {
-                      "name": "run_start_time_associativity",
-                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
-                    }
-                  ],
-                  "disaggregated": false
-                }
-              },
-              {
-                "name": "utildist_run_start_time",
-                "query": {
-                  "datasetName": "ds-util-dist",
                   "fields": [
                     {
                       "name": "run_start_time",
@@ -1166,6 +1166,10 @@
                   },
                   {
                     "fieldName": "run_start_time",
+                    "queryName": "utildist_run_start_time"
+                  },
+                  {
+                    "fieldName": "run_start_time",
                     "queryName": "spill-filter_ds-spill_run_start_time"
                   },
                   {
@@ -1175,10 +1179,6 @@
                   {
                     "fieldName": "run_start_time",
                     "queryName": "spill-filter_ds-expanded-disk_run_start_time"
-                  },
-                  {
-                    "fieldName": "run_start_time",
-                    "queryName": "utildist_run_start_time"
                   }
                 ]
               }
@@ -3487,7 +3487,8 @@
             "multilineTextboxSpec": {
               "lines": [
                 "### Actual EXPANDED_DISK events (durable log)",
-                "_Cluster Events API 기반. Serverless 는 이벤트가 없고, 종료된 job 클러스터는 ~30일 후 purge 되므로 초기에는 비어 있을 수 있다 — 매일 적재되며 시간이 지날수록 채워진다._"
+                "_Cluster Events API 기반. Serverless 는 이벤트가 없고, 종료된 job 클러스터는 ~30일 후 purge 되므로 초기에는 비어 있을 수 있다 — 매일 적재되며 시간이 지날수록 채워진다._",
+                "_**Cause** 는 Cluster Events API가 돌려주는 각 이벤트의 `details.cause` 값 그대로다(가공 없음). 주로 `DID_NOT_EXPAND_DISK` 에서 디스크 자동 확장이 안 된 사유가 채워지고, 정상 확장(`EXPANDED_DISK`)은 비어 있을 수 있다. 원본 details 전체는 `expanded_disk_events.details_json` 컬럼에 보관된다._"
               ]
             }
           },
@@ -3495,7 +3496,7 @@
             "x": 0,
             "y": 19,
             "width": 6,
-            "height": 2
+            "height": 3
           }
         },
         {
@@ -3607,7 +3608,7 @@
           },
           "position": {
             "x": 0,
-            "y": 21,
+            "y": 22,
             "width": 6,
             "height": 6
           }
