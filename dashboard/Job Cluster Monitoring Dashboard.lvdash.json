@@ -199,7 +199,7 @@
       "name": "ds-job-detail",
       "displayName": "Classic · Job Recommendation Detail",
       "queryLines": [
-        "SELECT DATE(r.run_start_time) AS run_start_time, COALESCE(r.job_name, CONCAT('Job ', r.job_id)) AS job_name, r.job_id, r.sizing_recommendation, r.owned_by, r.worker_node_type, COALESCE(CAST(r.configured_workers AS STRING), CONCAT(CAST(r.min_autoscale_workers AS STRING), '-', CAST(r.max_autoscale_workers AS STRING))) AS workers_config, r.run_count, ROUND(r.avg_cpu_util, 1) AS avg_cpu_pct, ROUND(r.avg_mem_util, 1) AS avg_mem_pct, ROUND(r.total_cost_usd, 2) AS total_cost_usd, ROUND(r.estimated_savings_usd, 2) AS estimated_savings_usd, r.recommendation_detail, CONCAT('/jobs/', r.job_id) AS job_url FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') r WHERE r.compute_type = 'Job Compute' ORDER BY r.total_cost_usd DESC"
+        "SELECT CAST(r.run_start_time AS DATE) AS last_run_date, CONCAT('<a href=''https://adb-984752964297111.11.azuredatabricks.net/jobs/', r.job_id, '''>', r.job_id, '</a>') AS job_id, COALESCE(r.job_name, CONCAT('Job ', r.job_id)) AS job_name, r.sizing_recommendation, r.owned_by, r.worker_node_type, COALESCE(CAST(r.configured_workers AS STRING), CONCAT(CAST(r.min_autoscale_workers AS STRING), '-', CAST(r.max_autoscale_workers AS STRING))) AS workers_config, r.run_count, ROUND(r.avg_cpu_util, 1) AS avg_cpu_pct, ROUND(r.avg_mem_util, 1) AS avg_mem_pct, ROUND(r.total_cost_usd, 2) AS total_cost_usd, ROUND(r.estimated_savings_usd, 2) AS estimated_savings_usd, r.recommendation_detail FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') r WHERE r.compute_type = 'Job Compute' ORDER BY r.total_cost_usd DESC"
       ],
       "parameters": [
         {
@@ -1568,11 +1568,7 @@
               },
               "mark": {
                 "colors": [
-                  "#FF3621",
-                  "#FF8C00",
-                  "#FFAB00",
-                  "#00A972",
-                  "#2272B4"
+                  "#FFAB00"
                 ]
               },
               "frame": {
@@ -1771,11 +1767,7 @@
               },
               "mark": {
                 "colors": [
-                  "#FF3621",
-                  "#FF8C00",
-                  "#FFAB00",
-                  "#00A972",
-                  "#2272B4"
+                  "#FFAB00"
                 ]
               },
               "frame": {
@@ -1856,12 +1848,8 @@
                       "expression": "`recommendation_detail`"
                     },
                     {
-                      "name": "run_start_time",
-                      "expression": "`run_start_time`"
-                    },
-                    {
-                      "name": "job_url",
-                      "expression": "`job_url`"
+                      "name": "last_run_date",
+                      "expression": "`last_run_date`"
                     }
                   ],
                   "disaggregated": true
@@ -1881,10 +1869,8 @@
                     "fieldName": "job_id",
                     "displayName": "Job ID",
                     "type": "string",
-                    "displayAs": "link",
-                    "linkUrlTemplate": "{{ job_url }}",
-                    "linkTextTemplate": "{{ @ }}",
-                    "linkOpenInNewTab": true,
+                    "displayAs": "html",
+                    "allowHTML": true,
                     "visible": true
                   },
                   {
@@ -1932,13 +1918,8 @@
                     "displayName": "Recommendation"
                   },
                   {
-                    "fieldName": "run_start_time",
-                    "displayName": "run_start_time",
-                    "visible": false
-                  },
-                  {
-                    "fieldName": "job_url",
-                    "displayName": "job_url",
+                    "fieldName": "last_run_date",
+                    "displayName": "최근 실행일 (Last Run)",
                     "visible": false
                   }
                 ]
