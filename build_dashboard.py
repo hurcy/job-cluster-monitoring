@@ -1,20 +1,44 @@
 #!/usr/bin/env python3
-"""Add Disk Spill pages + datasets to the Job Cluster Monitoring Lakeview dashboard,
-and (re)target the whole dashboard to a given catalog.schema.
-Idempotent: removes any previously-added spill datasets/pages before re-adding.
+"""Generate the Job Cluster Monitoring Lakeview dashboard (.lvdash.json), targeted to the
+`catalog` / `analytics_schema` variables defined in databricks.yml.
 
-Usage:
-  python3 build_dashboard.py                       # default target hurcy.test, edits the repo JSON
-  CATALOG=cust_cat SCHEMA=monitoring \\
-    OUT=/tmp/cust.lvdash.json python3 build_dashboard.py   # retarget for a customer, write elsewhere
+It adds the Disk Spill pages + datasets and (re)targets the WHOLE dashboard — the
+p_catalog/p_schema parameter defaults on every dataset, the catalog/schema global filters,
+and the driver dataset — to those values. Idempotent (safe to re-run).
+
+Run this whenever you change `catalog`/`analytics_schema` in databricks.yml so the dashboard
+points at the right tables for the target (customer) environment:
+
+  python3 build_dashboard.py                       # read catalog/analytics_schema from databricks.yml
+  CATALOG=c SCHEMA=s python3 build_dashboard.py     # explicit override (skips databricks.yml)
+  OUT=/tmp/x.lvdash.json python3 build_dashboard.py # write to a different file
+
+Paths resolve relative to this script's location (repo root), so cwd does not matter.
 """
-import json, os, sys, copy
+import json, os, re, copy
 
-PATH = os.environ.get("PATH_IN", "job-cluster-monitoring/dashboard/Job Cluster Monitoring Dashboard.lvdash.json")
-OUT = os.environ.get("OUT", PATH)
-CATALOG = os.environ.get("CATALOG", "hurcy")
-SCHEMA = os.environ.get("SCHEMA", "test")
-d = json.load(open(PATH))
+HERE = os.path.dirname(os.path.abspath(__file__))   # repo root — this script lives here
+DASH = os.path.join(HERE, "dashboard", "Job Cluster Monitoring Dashboard.lvdash.json")
+YML = os.path.join(HERE, "databricks.yml")
+OUT = os.environ.get("OUT", DASH)
+
+def bundle_var(name, fallback):
+    """Read variables.<name>.default from databricks.yml (PyYAML if available, else regex)."""
+    try:
+        import yaml
+        v = yaml.safe_load(open(YML)).get("variables", {}).get(name) or {}
+        return v.get("default", fallback)
+    except Exception:
+        text = open(YML).read()
+        m = re.search(rf'^  {re.escape(name)}:[^\n]*\n(?:^    [^\n]*\n)*?^    default:\s*"?([^"\n]+?)"?\s*$',
+                      text, re.M)
+        return m.group(1) if m else fallback
+
+CATALOG = os.environ.get("CATALOG") or bundle_var("catalog", "hurcy")
+SCHEMA = os.environ.get("SCHEMA") or bundle_var("analytics_schema", "test")
+print(f"target catalog.schema = {CATALOG}.{SCHEMA}  "
+      f"(source: {'env override' if os.environ.get('CATALOG') else 'databricks.yml'})")
+d = json.load(open(DASH))
 
 # ---- clean prior spill additions (idempotent re-runs) ----
 SPILL_DATASETS = {"ds-spill", "ds-spill-jobs", "ds-disk-pressure", "ds-expanded-disk"}
