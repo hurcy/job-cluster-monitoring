@@ -37,7 +37,7 @@ SQL_SCRIPT = r"""-- ============================================================
 -- Job & Cluster Right-Sizing Analysis  (non-SDP, reads system.* directly)
 -- =====================================================================
 -- Ported from the serverless DLT pipeline: no SDP/serverless, no system-table
--- copies. Intermediate steps are Spark TEMPORARY VIEWs; final outputs are TABLEs
+-- copies. Intermediate steps are Spark TEMPORARY VIEWs and final outputs are TABLEs
 -- in the current catalog.schema (set via USE by the runner notebook).
 -- Reads system.compute.{node_timeline,clusters}, system.lakeflow.{jobs,
 -- job_task_run_timeline,job_run_timeline}, system.billing.{usage,list_prices}.
@@ -607,6 +607,8 @@ SELECT
       THEN 'CONSIDER_UPSIZE'
     WHEN cu.avg_cpu_wait > 10
       THEN 'IO_BOTTLENECK'
+    WHEN cu.avg_cpu_util IS NULL OR cu.avg_mem_util IS NULL
+      THEN 'NO_UTIL_DATA'
     ELSE 'APPROPRIATE'
   END AS sizing_recommendation,
 
@@ -629,6 +631,8 @@ SELECT
       THEN '리소스 한계 근접. 워커 추가 또는 더 큰 인스턴스 타입 검토 필요.'
     WHEN cu.avg_cpu_wait > 10
       THEN 'I/O 병목 감지. 스토리지 최적화 또는 EBS 성능 개선 권고.'
+    WHEN cu.avg_cpu_util IS NULL OR cu.avg_mem_util IS NULL
+      THEN '활용률(CPU/Mem) 데이터 없음 — sizing 판정 보류. node_timeline 수집 여부 확인.'
     ELSE '현재 구성 적절.'
   END AS recommendation_detail,
 
@@ -753,6 +757,8 @@ SELECT
       THEN 'CONSIDER_UPSIZE'
     WHEN cu.avg_cpu_wait > 10
       THEN 'IO_BOTTLENECK'
+    WHEN cu.avg_cpu_util IS NULL OR cu.avg_mem_util IS NULL
+      THEN 'NO_UTIL_DATA'
     ELSE 'APPROPRIATE'
   END AS sizing_recommendation,
 
@@ -775,6 +781,8 @@ SELECT
       THEN '리소스 한계 근접. 워커 추가 또는 더 큰 인스턴스 타입 검토 필요.'
     WHEN cu.avg_cpu_wait > 10
       THEN 'I/O 병목 감지. 스토리지 최적화 또는 EBS 성능 개선 권고.'
+    WHEN cu.avg_cpu_util IS NULL OR cu.avg_mem_util IS NULL
+      THEN '활용률(CPU/Mem) 데이터 없음 — sizing 판정 보류. node_timeline 수집 여부 확인.'
     ELSE '현재 구성 적절.'
   END AS recommendation_detail,
 
@@ -912,10 +920,12 @@ FROM job_compute_sizing_mv
 """
 SQL_SCRIPT = SQL_SCRIPT.replace("${workspace_id}", WORKSPACE_ID)
 
+# Strip full-line comments BEFORE splitting on ';' so a ';' inside a comment can't break the split.
+SQL_SCRIPT = "\n".join(l for l in SQL_SCRIPT.split("\n") if not l.strip().startswith("--"))
 stmts = SQL_SCRIPT.split(";")
 ran = 0
 for st in stmts:
-    body = "\n".join(l for l in st.split("\n") if not l.strip().startswith("--")).strip()
+    body = st.strip()
     if not body:
         continue
     m = re.search(r"(?:TEMPORARY VIEW|REPLACE TABLE)\s+(\w+)", body)

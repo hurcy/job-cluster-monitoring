@@ -472,7 +472,7 @@
       "name": "ds-ap-jobs",
       "displayName": "All-Purpose · Jobs on Shared Clusters",
       "queryLines": [
-        "SELECT cluster_name, COALESCE(job_name, CONCAT('Job ', job_id)) AS job_name, COUNT(DISTINCT job_run_id) AS run_count, ROUND(AVG(avg_cpu_util), 1) AS avg_cpu_util, ROUND(AVG(avg_mem_util), 1) AS avg_mem_util, ROUND(SUM(total_cost_usd), 2) AS total_cost_usd, DATE(MIN(run_start_time)) AS run_start_time FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') WHERE cluster_source = 'UI' GROUP BY cluster_name, job_name, job_id ORDER BY total_cost_usd DESC LIMIT 50"
+        "SELECT cluster_name, COALESCE(job_name, CONCAT('Job ', job_id)) AS job_name, COUNT(DISTINCT job_run_id) AS run_count, ROUND(SUM(total_cost_usd), 2) AS total_cost_usd, DATE(MIN(run_start_time)) AS run_start_time FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') WHERE cluster_source = 'UI' GROUP BY cluster_name, job_name, job_id ORDER BY total_cost_usd DESC LIMIT 50"
       ],
       "parameters": [
         {
@@ -2078,6 +2078,10 @@
                   "datasetName": "ds-srv-detail",
                   "fields": [
                     {
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
+                    },
+                    {
                       "name": "job_label",
                       "expression": "`job_label`"
                     },
@@ -2107,6 +2111,10 @@
               "widgetType": "table",
               "encodings": {
                 "columns": [
+                  {
+                    "fieldName": "run_start_time",
+                    "displayName": "Date"
+                  },
                   {
                     "fieldName": "job_label",
                     "displayName": "Job",
@@ -2361,6 +2369,10 @@
                   "datasetName": "ds-ap-cluster",
                   "fields": [
                     {
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
+                    },
+                    {
                       "name": "cluster_name",
                       "expression": "`cluster_name`"
                     },
@@ -2414,6 +2426,10 @@
               "widgetType": "table",
               "encodings": {
                 "columns": [
+                  {
+                    "fieldName": "run_start_time",
+                    "displayName": "Date"
+                  },
                   {
                     "fieldName": "cluster_name",
                     "displayName": "Cluster",
@@ -2539,14 +2555,6 @@
                       "expression": "`run_count`"
                     },
                     {
-                      "name": "avg_cpu_util",
-                      "expression": "`avg_cpu_util`"
-                    },
-                    {
-                      "name": "avg_mem_util",
-                      "expression": "`avg_mem_util`"
-                    },
-                    {
                       "name": "total_cost_usd",
                       "expression": "`total_cost_usd`"
                     }
@@ -2579,22 +2587,6 @@
                   {
                     "fieldName": "run_count",
                     "displayName": "Runs",
-                    "booleanValues": [
-                      "false",
-                      "true"
-                    ]
-                  },
-                  {
-                    "fieldName": "avg_cpu_util",
-                    "displayName": "CPU %",
-                    "booleanValues": [
-                      "false",
-                      "true"
-                    ]
-                  },
-                  {
-                    "fieldName": "avg_mem_util",
-                    "displayName": "Mem %",
                     "booleanValues": [
                       "false",
                       "true"
