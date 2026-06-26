@@ -238,7 +238,7 @@
       "name": "ds-job-detail",
       "displayName": "Classic · Job Recommendation Detail",
       "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, COALESCE(job_name, CONCAT('Job ', job_id)) AS job_name, sizing_recommendation, owned_by, worker_node_type, COALESCE(CAST(configured_workers AS STRING), CONCAT(CAST(min_autoscale_workers AS STRING), '-', CAST(max_autoscale_workers AS STRING))) AS workers_config, run_count, ROUND(avg_cpu_util, 1) AS avg_cpu_pct, ROUND(avg_mem_util, 1) AS avg_mem_pct, ROUND(total_cost_usd, 2) AS total_cost_usd, ROUND(estimated_savings_usd, 2) AS estimated_savings_usd, recommendation_detail FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') WHERE compute_type = 'Job Compute' ORDER BY total_cost_usd DESC"
+        "SELECT DATE(r.run_start_time) AS run_start_time, COALESCE(r.job_name, CONCAT('Job ', r.job_id)) AS job_name, r.sizing_recommendation, r.owned_by, r.worker_node_type, COALESCE(CAST(r.configured_workers AS STRING), CONCAT(CAST(r.min_autoscale_workers AS STRING), '-', CAST(r.max_autoscale_workers AS STRING))) AS workers_config, r.run_count, ROUND(r.avg_cpu_util, 1) AS avg_cpu_pct, ROUND(r.avg_mem_util, 1) AS avg_mem_pct, ROUND(r.total_cost_usd, 2) AS total_cost_usd, ROUND(r.estimated_savings_usd, 2) AS estimated_savings_usd, r.recommendation_detail, r.job_id, lr.job_run_id, CONCAT('/jobs/', r.job_id, '/runs/', lr.job_run_id) AS job_run_url FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') r LEFT JOIN (SELECT job_id, CAST(run_start_time AS DATE) AS d, MAX_BY(job_run_id, run_start_time) AS job_run_id FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') WHERE is_serverless = false GROUP BY job_id, CAST(run_start_time AS DATE)) lr ON r.job_id = lr.job_id AND DATE(r.run_start_time) = lr.d WHERE r.compute_type = 'Job Compute' ORDER BY r.total_cost_usd DESC"
       ],
       "parameters": [
         {
@@ -512,6 +512,45 @@
       "displayName": "catalog_schema",
       "queryLines": [
         "select 'hurcy' as catalog, 'test' as schema"
+      ]
+    },
+    {
+      "name": "ds-mem-dist",
+      "displayName": "Overview · Memory Utilization Distribution",
+      "queryLines": [
+        "SELECT DATE(run_start_time) AS run_start_time, CASE WHEN avg_mem_util IS NULL THEN 'No Data' WHEN avg_mem_util < 20 THEN '<20%' WHEN avg_mem_util < 40 THEN '20-40%' WHEN avg_mem_util < 60 THEN '40-60%' WHEN avg_mem_util < 80 THEN '60-80%' ELSE '>80%' END AS mem_range, COUNT(*) AS job_count FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') WHERE compute_type = 'Job Compute' GROUP BY 1, 2 ORDER BY job_count DESC"
+      ],
+      "parameters": [
+        {
+          "displayName": "카탈로그",
+          "keyword": "p_catalog",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "hurcy"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "displayName": "스키마",
+          "keyword": "p_schema",
+          "dataType": "STRING",
+          "defaultSelection": {
+            "values": {
+              "dataType": "STRING",
+              "values": [
+                {
+                  "value": "test"
+                }
+              ]
+            }
+          }
+        }
       ]
     },
     {
@@ -1043,6 +1082,23 @@
                 }
               },
               {
+                "name": "memdist_run_start_time",
+                "query": {
+                  "datasetName": "ds-mem-dist",
+                  "fields": [
+                    {
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
+                    },
+                    {
+                      "name": "run_start_time_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
                 "name": "spill-filter_ds-spill_run_start_time",
                 "query": {
                   "datasetName": "ds-spill",
@@ -1167,6 +1223,10 @@
                   {
                     "fieldName": "run_start_time",
                     "queryName": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a01a199b5738b026137f99_run_start_time"
+                  },
+                  {
+                    "fieldName": "run_start_time",
+                    "queryName": "memdist_run_start_time"
                   },
                   {
                     "fieldName": "run_start_time",
@@ -1786,8 +1846,8 @@
             }
           },
           "position": {
-            "x": 3,
-            "y": 21,
+            "x": 0,
+            "y": 27,
             "width": 3,
             "height": 6
           }
@@ -1827,7 +1887,7 @@
           },
           "position": {
             "x": 0,
-            "y": 27,
+            "y": 33,
             "width": 2,
             "height": 3
           }
@@ -1867,9 +1927,75 @@
           },
           "position": {
             "x": 2,
-            "y": 27,
+            "y": 33,
             "width": 2,
             "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "chart-mem-dist",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds-mem-dist",
+                  "fields": [
+                    {
+                      "name": "mem_range",
+                      "expression": "`mem_range`"
+                    },
+                    {
+                      "name": "sum(job_count)",
+                      "expression": "SUM(`job_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "mem_range",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Memory Utilization Range"
+                },
+                "y": {
+                  "fieldName": "sum(job_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Job Count"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "mark": {
+                "colors": [
+                  "#FF3621",
+                  "#FF8C00",
+                  "#FFAB00",
+                  "#00A972",
+                  "#2272B4"
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Memory Utilization Distribution"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 21,
+            "width": 3,
+            "height": 6
           }
         }
       ],
@@ -1935,6 +2061,18 @@
                     {
                       "name": "recommendation_detail",
                       "expression": "`recommendation_detail`"
+                    },
+                    {
+                      "name": "job_run_id",
+                      "expression": "`job_run_id`"
+                    },
+                    {
+                      "name": "job_run_url",
+                      "expression": "`job_run_url`"
+                    },
+                    {
+                      "name": "job_id",
+                      "expression": "`job_id`"
                     }
                   ],
                   "disaggregated": true
@@ -1956,6 +2094,31 @@
                   },
                   {
                     "fieldName": "run_start_time"
+                  },
+                  {
+                    "fieldName": "job_run_id",
+                    "displayName": "Job Run",
+                    "type": "string",
+                    "displayAs": "link",
+                    "linkUrlTemplate": "{{ job_run_url }}",
+                    "linkTextTemplate": "{{ @ }}",
+                    "linkTitleTemplate": "{{ @ }}",
+                    "linkOpenInNewTab": true,
+                    "imageUrlTemplate": "{{ @ }}",
+                    "imageTitleTemplate": "{{ @ }}",
+                    "imageWidth": "",
+                    "imageHeight": "",
+                    "booleanValues": [
+                      "false",
+                      "true"
+                    ],
+                    "visible": true,
+                    "allowSearch": false,
+                    "alignContent": "left",
+                    "allowHTML": false,
+                    "highlightLinks": false,
+                    "useMonospaceFont": false,
+                    "preserveWhitespace": false
                   },
                   {
                     "fieldName": "sizing_recommendation",
@@ -1996,6 +2159,13 @@
                   {
                     "fieldName": "recommendation_detail",
                     "displayName": "Recommendation"
+                  },
+                  {
+                    "fieldName": "job_run_url",
+                    "displayName": "job_run_url",
+                    "type": "string",
+                    "displayAs": "string",
+                    "visible": false
                   }
                 ]
               }
