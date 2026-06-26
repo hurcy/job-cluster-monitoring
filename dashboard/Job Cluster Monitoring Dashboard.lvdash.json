@@ -82,7 +82,7 @@
       "name": "ds-compute-compare",
       "displayName": "Overview · Compute Type Cost Comparison",
       "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, CASE WHEN is_serverless = true THEN 'Serverless' ELSE 'Classic' END AS compute_type, ROUND(SUM(total_cost_usd), 2) AS total_cost, COUNT(DISTINCT job_id) AS job_count FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') GROUP BY DATE(run_start_time), CASE WHEN is_serverless = true THEN 'Serverless' ELSE 'Classic' END ORDER BY total_cost DESC"
+        "SELECT DATE(run_start_time) AS run_start_time, CASE WHEN is_serverless = true THEN 'Serverless' ELSE 'Classic' END AS compute_type, job_id, total_cost_usd FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv')"
       ],
       "parameters": [
         {
@@ -121,7 +121,7 @@
       "name": "ds-classic-sizing",
       "displayName": "Overview · Sizing Signal Distribution",
       "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, sizing_recommendation, COUNT(*) AS job_count, ROUND(SUM(total_cost_usd), 2) AS total_cost FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') WHERE compute_type = 'Job Compute' GROUP BY DATE(run_start_time), sizing_recommendation ORDER BY job_count DESC"
+        "SELECT DATE(run_start_time) AS run_start_time, job_id, sizing_recommendation, total_cost_usd FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') WHERE compute_type = 'Job Compute'"
       ],
       "parameters": [
         {
@@ -160,7 +160,7 @@
       "name": "ds-instance-type",
       "displayName": "Overview · Instance Type Cost Breakdown",
       "queryLines": [
-        "SELECT DATE(run_start_time) AS run_start_time, worker_node_type, ROUND(SUM(total_cost_usd), 2) AS total_cost, COUNT(*) AS job_count FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') WHERE compute_type = 'Job Compute' AND worker_node_type IS NOT NULL GROUP BY DATE(run_start_time), worker_node_type ORDER BY total_cost DESC"
+        "SELECT DATE(run_start_time) AS run_start_time, job_id, worker_node_type, total_cost_usd FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') WHERE compute_type = 'Job Compute' AND worker_node_type IS NOT NULL"
       ],
       "parameters": [
         {
@@ -199,7 +199,7 @@
       "name": "ds-job-detail",
       "displayName": "Classic · Job Recommendation Detail",
       "queryLines": [
-        "SELECT DATE(r.run_start_time) AS run_start_time, COALESCE(r.job_name, CONCAT('Job ', r.job_id)) AS job_name, r.sizing_recommendation, r.owned_by, r.worker_node_type, COALESCE(CAST(r.configured_workers AS STRING), CONCAT(CAST(r.min_autoscale_workers AS STRING), '-', CAST(r.max_autoscale_workers AS STRING))) AS workers_config, r.run_count, ROUND(r.avg_cpu_util, 1) AS avg_cpu_pct, ROUND(r.avg_mem_util, 1) AS avg_mem_pct, ROUND(r.total_cost_usd, 2) AS total_cost_usd, ROUND(r.estimated_savings_usd, 2) AS estimated_savings_usd, r.recommendation_detail, r.job_id, lr.job_run_id, CONCAT('/jobs/', r.job_id, '/runs/', lr.job_run_id) AS job_run_url FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') r LEFT JOIN (SELECT job_id, CAST(run_start_time AS DATE) AS d, MAX_BY(job_run_id, run_start_time) AS job_run_id FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.job_run_cost_analysis_mv') WHERE is_serverless = false GROUP BY job_id, CAST(run_start_time AS DATE)) lr ON r.job_id = lr.job_id AND DATE(r.run_start_time) = lr.d WHERE r.compute_type = 'Job Compute' ORDER BY r.total_cost_usd DESC"
+        "SELECT DATE(r.run_start_time) AS run_start_time, COALESCE(r.job_name, CONCAT('Job ', r.job_id)) AS job_name, r.job_id, r.sizing_recommendation, r.owned_by, r.worker_node_type, COALESCE(CAST(r.configured_workers AS STRING), CONCAT(CAST(r.min_autoscale_workers AS STRING), '-', CAST(r.max_autoscale_workers AS STRING))) AS workers_config, r.run_count, ROUND(r.avg_cpu_util, 1) AS avg_cpu_pct, ROUND(r.avg_mem_util, 1) AS avg_mem_pct, ROUND(r.total_cost_usd, 2) AS total_cost_usd, ROUND(r.estimated_savings_usd, 2) AS estimated_savings_usd, r.recommendation_detail, CONCAT('/jobs/', r.job_id) AS job_url FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.right_sizing_analysis_mv') r WHERE r.compute_type = 'Job Compute' ORDER BY r.total_cost_usd DESC"
       ],
       "parameters": [
         {
@@ -822,108 +822,6 @@
             "name": "global-filter-date-range",
             "queries": [
               {
-                "name": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a019a89cce6315b8078ed7_run_start_time",
-                "query": {
-                  "datasetName": "ds-kpi-classic",
-                  "fields": [
-                    {
-                      "name": "run_start_time",
-                      "expression": "`run_start_time`"
-                    },
-                    {
-                      "name": "run_start_time_associativity",
-                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
-                    }
-                  ],
-                  "disaggregated": false
-                }
-              },
-              {
-                "name": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a019e380d4fa077e1270cf_run_start_time",
-                "query": {
-                  "datasetName": "ds-compute-compare",
-                  "fields": [
-                    {
-                      "name": "run_start_time",
-                      "expression": "`run_start_time`"
-                    },
-                    {
-                      "name": "run_start_time_associativity",
-                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
-                    }
-                  ],
-                  "disaggregated": false
-                }
-              },
-              {
-                "name": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a019db9007eab956937c26_run_start_time",
-                "query": {
-                  "datasetName": "ds-kpi-serverless",
-                  "fields": [
-                    {
-                      "name": "run_start_time",
-                      "expression": "`run_start_time`"
-                    },
-                    {
-                      "name": "run_start_time_associativity",
-                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
-                    }
-                  ],
-                  "disaggregated": false
-                }
-              },
-              {
-                "name": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a019e8a82da5f03aa267ae_run_start_time",
-                "query": {
-                  "datasetName": "ds-classic-sizing",
-                  "fields": [
-                    {
-                      "name": "run_start_time",
-                      "expression": "`run_start_time`"
-                    },
-                    {
-                      "name": "run_start_time_associativity",
-                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
-                    }
-                  ],
-                  "disaggregated": false
-                }
-              },
-              {
-                "name": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a019f6902d857d6fb246e1_run_start_time",
-                "query": {
-                  "datasetName": "ds-instance-type",
-                  "fields": [
-                    {
-                      "name": "run_start_time",
-                      "expression": "`run_start_time`"
-                    },
-                    {
-                      "name": "run_start_time_associativity",
-                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
-                    }
-                  ],
-                  "disaggregated": false
-                }
-              },
-              {
-                "name": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a019fb868a9ad661ab412c_run_start_time",
-                "query": {
-                  "datasetName": "ds-job-detail",
-                  "fields": [
-                    {
-                      "name": "run_start_time",
-                      "expression": "`run_start_time`"
-                    },
-                    {
-                      "name": "run_start_time_associativity",
-                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
-                    }
-                  ],
-                  "disaggregated": false
-                }
-              },
-              {
                 "name": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a01a00a184c519281321c6_run_start_time",
                 "query": {
                   "datasetName": "ds-srv-top",
@@ -1026,23 +924,6 @@
                 }
               },
               {
-                "name": "utildist_run_start_time",
-                "query": {
-                  "datasetName": "ds-util-dist",
-                  "fields": [
-                    {
-                      "name": "run_start_time",
-                      "expression": "`run_start_time`"
-                    },
-                    {
-                      "name": "run_start_time_associativity",
-                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
-                    }
-                  ],
-                  "disaggregated": false
-                }
-              },
-              {
                 "name": "spill-filter_ds-spill_run_start_time",
                 "query": {
                   "datasetName": "ds-spill",
@@ -1118,30 +999,6 @@
                 "fields": [
                   {
                     "fieldName": "run_start_time",
-                    "queryName": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a019a89cce6315b8078ed7_run_start_time"
-                  },
-                  {
-                    "fieldName": "run_start_time",
-                    "queryName": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a019e380d4fa077e1270cf_run_start_time"
-                  },
-                  {
-                    "fieldName": "run_start_time",
-                    "queryName": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a019db9007eab956937c26_run_start_time"
-                  },
-                  {
-                    "fieldName": "run_start_time",
-                    "queryName": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a019e8a82da5f03aa267ae_run_start_time"
-                  },
-                  {
-                    "fieldName": "run_start_time",
-                    "queryName": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a019f6902d857d6fb246e1_run_start_time"
-                  },
-                  {
-                    "fieldName": "run_start_time",
-                    "queryName": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a019fb868a9ad661ab412c_run_start_time"
-                  },
-                  {
-                    "fieldName": "run_start_time",
                     "queryName": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a01a00a184c519281321c6_run_start_time"
                   },
                   {
@@ -1163,10 +1020,6 @@
                   {
                     "fieldName": "run_start_time",
                     "queryName": "dashboards/01f125f23c2c176bbbb3c7a201fb7528/datasets/01f1265a51a01a199b5738b026137f99_run_start_time"
-                  },
-                  {
-                    "fieldName": "run_start_time",
-                    "queryName": "utildist_run_start_time"
                   },
                   {
                     "fieldName": "run_start_time",
@@ -1409,8 +1262,8 @@
                       "expression": "`compute_type`"
                     },
                     {
-                      "name": "sum(total_cost)",
-                      "expression": "SUM(`total_cost`)"
+                      "name": "sum(total_cost_usd)",
+                      "expression": "SUM(`total_cost_usd`)"
                     }
                   ],
                   "disaggregated": false
@@ -1439,7 +1292,7 @@
                   }
                 },
                 "y": {
-                  "fieldName": "sum(total_cost)",
+                  "fieldName": "sum(total_cost_usd)",
                   "displayName": "Total Cost (USD)",
                   "scale": {
                     "type": "quantitative"
@@ -1472,8 +1325,8 @@
                       "expression": "`compute_type`"
                     },
                     {
-                      "name": "sum(job_count)",
-                      "expression": "SUM(`job_count`)"
+                      "name": "countdistinct(job_id)",
+                      "expression": "COUNT(DISTINCT `job_id`)"
                     }
                   ],
                   "disaggregated": false
@@ -1502,7 +1355,7 @@
                   }
                 },
                 "y": {
-                  "fieldName": "sum(job_count)",
+                  "fieldName": "countdistinct(job_id)",
                   "scale": {
                     "type": "quantitative"
                   },
@@ -1551,8 +1404,8 @@
                       "expression": "`sizing_recommendation`"
                     },
                     {
-                      "name": "sum(job_count)",
-                      "expression": "SUM(`job_count`)"
+                      "name": "count(job_id)",
+                      "expression": "COUNT(`job_id`)"
                     }
                   ],
                   "disaggregated": false
@@ -1571,7 +1424,7 @@
                   "displayName": "Sizing Signal"
                 },
                 "y": {
-                  "fieldName": "sum(job_count)",
+                  "fieldName": "count(job_id)",
                   "scale": {
                     "type": "quantitative"
                   },
@@ -1617,8 +1470,8 @@
                       "expression": "`sizing_recommendation`"
                     },
                     {
-                      "name": "sum(total_cost)",
-                      "expression": "SUM(`total_cost`)"
+                      "name": "sum(total_cost_usd)",
+                      "expression": "SUM(`total_cost_usd`)"
                     }
                   ],
                   "disaggregated": false
@@ -1637,7 +1490,7 @@
                   "displayName": "Sizing Signal"
                 },
                 "y": {
-                  "fieldName": "sum(total_cost)",
+                  "fieldName": "sum(total_cost_usd)",
                   "scale": {
                     "type": "quantitative"
                   },
@@ -1749,8 +1602,8 @@
                       "expression": "`worker_node_type`"
                     },
                     {
-                      "name": "sum(total_cost)",
-                      "expression": "SUM(`total_cost`)"
+                      "name": "sum(total_cost_usd)",
+                      "expression": "SUM(`total_cost_usd`)"
                     }
                   ],
                   "disaggregated": false
@@ -1769,7 +1622,7 @@
                   "displayName": "Instance Type"
                 },
                 "y": {
-                  "fieldName": "sum(total_cost)",
+                  "fieldName": "sum(total_cost_usd)",
                   "scale": {
                     "type": "quantitative"
                   },
@@ -1955,12 +1808,12 @@
                   "datasetName": "ds-job-detail",
                   "fields": [
                     {
-                      "name": "job_name",
-                      "expression": "`job_name`"
+                      "name": "job_id",
+                      "expression": "`job_id`"
                     },
                     {
-                      "name": "run_start_time",
-                      "expression": "`run_start_time`"
+                      "name": "job_name",
+                      "expression": "`job_name`"
                     },
                     {
                       "name": "sizing_recommendation",
@@ -2003,16 +1856,12 @@
                       "expression": "`recommendation_detail`"
                     },
                     {
-                      "name": "job_run_id",
-                      "expression": "`job_run_id`"
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
                     },
                     {
-                      "name": "job_run_url",
-                      "expression": "`job_run_url`"
-                    },
-                    {
-                      "name": "job_id",
-                      "expression": "`job_id`"
+                      "name": "job_url",
+                      "expression": "`job_url`"
                     }
                   ],
                   "disaggregated": true
@@ -2029,36 +1878,18 @@
               "encodings": {
                 "columns": [
                   {
-                    "fieldName": "job_name",
-                    "displayName": "Job Name"
-                  },
-                  {
-                    "fieldName": "run_start_time"
-                  },
-                  {
-                    "fieldName": "job_run_id",
-                    "displayName": "Job Run",
+                    "fieldName": "job_id",
+                    "displayName": "Job ID",
                     "type": "string",
                     "displayAs": "link",
-                    "linkUrlTemplate": "{{ job_run_url }}",
+                    "linkUrlTemplate": "{{ job_url }}",
                     "linkTextTemplate": "{{ @ }}",
-                    "linkTitleTemplate": "{{ @ }}",
                     "linkOpenInNewTab": true,
-                    "imageUrlTemplate": "{{ @ }}",
-                    "imageTitleTemplate": "{{ @ }}",
-                    "imageWidth": "",
-                    "imageHeight": "",
-                    "booleanValues": [
-                      "false",
-                      "true"
-                    ],
-                    "visible": true,
-                    "allowSearch": false,
-                    "alignContent": "left",
-                    "allowHTML": false,
-                    "highlightLinks": false,
-                    "useMonospaceFont": false,
-                    "preserveWhitespace": false
+                    "visible": true
+                  },
+                  {
+                    "fieldName": "job_name",
+                    "displayName": "Job Name"
                   },
                   {
                     "fieldName": "sizing_recommendation",
@@ -2101,10 +1932,13 @@
                     "displayName": "Recommendation"
                   },
                   {
-                    "fieldName": "job_run_url",
-                    "displayName": "job_run_url",
-                    "type": "string",
-                    "displayAs": "string",
+                    "fieldName": "run_start_time",
+                    "displayName": "run_start_time",
+                    "visible": false
+                  },
+                  {
+                    "fieldName": "job_url",
+                    "displayName": "job_url",
                     "visible": false
                   }
                 ]
