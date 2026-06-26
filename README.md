@@ -15,10 +15,14 @@ job-cluster-monitoring/
 │   └── dashboard.yml               # AI/BI 대시보드 리소스
 ├── workload_analysis/
 │   ├── transformations/            # 파이프라인 SQL (MV/ST 정의)
+│   │   ├── system_table_copies_mv.sql     # 시스템 테이블 필터 사본
+│   │   └── instance_workload_analysis_mv.sql  # Right-Sizing 분석 MV
+│   ├── ingestion/                  # 노트북 (classic 클러스터, serverless 미사용)
+│   │   └── spill_audit_setup.py           # Disk-Spill 뷰/테이블 생성 + EXPANDED_DISK 이벤트 적재 (신규, 변수-구동)
 │   ├── explorations/               # 탐색용 노트북
 │   └── validation/                 # 데이터 품질 검증 쿼리
 └── dashboard/
-    └── *.lvdash.json               # 대시보드 정의 파일
+    └── *.lvdash.json               # 대시보드 정의 파일 (Right-Sizing + Disk Spill 페이지)
 ```
 
 ## 사전 요구사항
@@ -128,6 +132,49 @@ databricks bundle validate -t prod
 # 리소스 삭제
 databricks bundle destroy -t prod
 ```
+
+## Disk-Spill / Expanded-Disk 감사
+
+Job Compute · Serverless · SQL Warehouse 에서 실행된 코드/쿼리의 **로컬 디스크 spill** 과
+**elastic-disk 확장 압력**을 분석하여 대시보드의 **Disk Spill** / **Spill Detail & Expanded Disk**
+페이지로 노출한다. (출처: `spill_audit_notebook.py`)
+
+**Serverless 를 쓸 수 없는 Pro SQL Warehouse 환경**에 맞춰, spill 분석 계층은 DLT MV 가 아닌
+**일반 SQL VIEW** 로 구현한다 — Pro warehouse 가 system table 을 직접 조회하므로
+serverless · DLT · 시스템테이블 사본이 전혀 필요 없다. **분석 윈도우는 최근 30일.**
+
+| 신호 | 소스 (직접 조회) | 산출물 | 런타임 |
+|------|------|--------|------|
+| Method A — 문장 단위 spill | `system.query.history` | `query_spill_v` (compute type · job 귀속 · 근본원인 태그) | Pro SQL Warehouse |
+| Method B — 클러스터 disk-free floor / swap | `system.compute.node_timeline` | `cluster_disk_pressure_v` (확장 신호, non-SQL 잡 포함) | Pro SQL Warehouse |
+| 실제 확장 이벤트 | Cluster Events API (`/api/2.0/clusters/events`) | `expanded_disk_events` Delta 테이블 (durable log) | Classic single-node 클러스터 |
+
+**근본원인 태그** (`query_spill_v.root_cause`): `WIDE_SHUFFLE` · `NO_PRUNING` ·
+`MV_REFRESH` · `MEMORY_BOUND` · `MODERATE` — 각각 처방을 `root_cause_detail` 에 담는다.
+
+### 변수-구동 배포 (임의 카탈로그.스키마 / 워크스페이스)
+
+뷰·테이블·이벤트 적재는 `spill_audit_setup.py` 노트북 한 개가 **번들 변수**로 전부 파라미터화해
+생성한다(`CREATE VIEW` 가 파라미터 마커를 못 받아 Python f-string 으로 주입). **per-customer SQL
+수정 불필요.** 고객사 배포 절차:
+
+1. `databricks.yml` 변수 설정: `catalog`, `analytics_schema`, `workspace_id`, `warehouse_id`.
+2. 대시보드를 같은 타깃으로 재생성: `CATALOG=<cat> SCHEMA=<sch> OUT=dashboard/<...>.lvdash.json python3 build_dashboard.py`
+   (`p_catalog`/`p_schema` 기본값 + 카탈로그/스키마 글로벌 필터 + 드라이버 dataset 을 일괄 치환).
+3. `databricks bundle deploy -t <target>` → `databricks bundle run spill_audit_refresh -t <target>`.
+
+> **전제조건(고객 워크스페이스):** `query`/`compute`/`lakeflow` **system schema 활성화**,
+> Pro/Serverless **SQL Warehouse** 1개, 타깃 스키마에 `CREATE` 권한 + system tables `SELECT` 권한.
+> system tables 는 멀티-워크스페이스이므로 `workspace_id` 필터 필수.
+
+> **EXPANDED_DISK 이벤트 주의:** 실제 확장 이벤트는 system table 이 아닌 Cluster Events API 에만
+> 있고(=SQL 로 호출 불가, 노트북+컴퓨트 필요), **종료된 job 클러스터는 ~30일 후 purge** 되어
+> 조회 불가. Serverless 는 이벤트가 없다. 그래서 노트북이 **매일** 이벤트를 Delta 로 스냅샷해
+> API 보존 윈도우를 넘어서는 **영속 이벤트 로그**를 쌓는다 — 초기에는 비어 있을 수 있으며 시간이
+> 지나며 채워진다. 모든 클러스터의 즉시 신호는 `cluster_disk_pressure_v`(disk-free floor) 가 커버한다.
+
+**`Spill Audit Refresh`** 잡(`resources/jobs.yml`)이 매일 실행된다 — `spill_audit_setup`
+노트북 한 개가 **classic single-node 클러스터**(serverless 미사용)에서 뷰/테이블 생성 후 이벤트를 적재.
 
 ## License
 MIT License

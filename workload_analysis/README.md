@@ -50,6 +50,31 @@ system.billing.usage + list_prices
 | Under-utilized | avg CPU < 30 % and avg memory < 40 % |
 | Balanced - Moderate Utilization | everything else |
 
+## Disk-Spill Audit Objects (`ingestion/spill_audit_setup.py`)
+
+Audits local-disk spill and elastic-disk pressure for Job Compute / Serverless / SQL
+Warehouse workloads (source: `spill_audit_notebook.py`). **Serverless-free** — the spill
+analysis layer is plain **SQL VIEWS** that read system tables directly (no DLT, no
+serverless, no system-table copies); the Pro SQL Warehouse queries them live. Analysis
+window: **last 30 days**, workspace-scoped.
+
+| Object | Type | Source (read directly) | Description |
+|--------|------|--------|-------------|
+| `query_spill_v` | View | `system.query.history` | Per-statement spill (`spilled_local_bytes>0`) with compute-type label, job attribution, and `classify_cause` → `root_cause` / `root_cause_detail` tags. |
+| `cluster_disk_pressure_v` | View | `system.compute.node_timeline` | Cluster×day disk-free floor + swap %; `pressure_signal` flags elastic-disk auto-expansion. Catches non-SQL Spark jobs invisible to `query.history`. |
+| `expanded_disk_events` | Delta table | Cluster Events API (`/api/2.0/clusters/events`) | Durable log of actual `EXPANDED_DISK` / `DID_NOT_EXPAND_DISK` events — accumulates beyond the API's cluster-purge retention. |
+
+`root_cause` ∈ {`WIDE_SHUFFLE`, `NO_PRUNING`, `MV_REFRESH`, `MEMORY_BOUND`, `MODERATE`}.
+These feed the dashboard's **Disk Spill** and **Spill Detail & Expanded Disk** pages.
+
+**Deployment** — `spill_audit_setup.py` (run by the `Spill Audit Refresh` job on a **classic
+single-node cluster**, no serverless) does everything in one place, **parameterized by bundle
+variables** (`catalog`, `schema`, `workspace_id`): creates the schema, (re)creates both views
+(via Python f-strings, since `CREATE VIEW` rejects parameter markers), ensures the
+`expanded_disk_events` table, then ingests events. Deploy to any catalog.schema/workspace by
+changing the variables — **no per-customer SQL editing**. Retarget the dashboard with
+`CATALOG=… SCHEMA=… OUT=… python3 build_dashboard.py` (repo root).
+
 ## Configuration
 
 The pipeline requires one parameter:
