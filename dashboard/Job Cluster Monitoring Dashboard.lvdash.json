@@ -1920,7 +1920,7 @@
                   {
                     "fieldName": "last_run_date",
                     "displayName": "최근 실행일 (Last Run)",
-                    "visible": false
+                    "visible": true
                   }
                 ]
               }

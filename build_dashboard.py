@@ -20,8 +20,9 @@
 import json, os, re
 
 
-def transform(d, catalog, schema):
+def transform(d, catalog, schema, host=""):
     """Add Disk Spill pages/datasets and (re)target the whole dashboard to catalog.schema.
+    If host is given, inject it into the Job ID deep-link (ds-job-detail).
     Idempotent: removes any previously-added spill datasets/pages first. Returns the dict."""
     SPILL_DATASETS = {"ds-spill", "ds-spill-jobs", "ds-disk-pressure", "ds-expanded-disk"}
     SPILL_PAGES = {"page-spill", "page-spill-detail"}
@@ -219,6 +220,14 @@ ORDER BY e.event_time DESC
                     if sel is not None and fname in ("catalog", "schema"):
                         sel["values"] = [{"value": catalog if fname == "catalog" else schema}]
 
+    # ---------- inject workspace host into the Job ID HTML deep-link (ds-job-detail) ----------
+    # Idempotent: rewrites the host portion of the https://<host>/jobs/ link each run.
+    if host:
+        for ds in d["datasets"]:
+            if ds["name"] == "ds-job-detail":
+                ds["queryLines"] = [re.sub(r"https://[^/']+/jobs/", f"https://{host}/jobs/", line)
+                                    for line in ds["queryLines"]]
+
     return d
 
 # COMMAND ----------
@@ -252,6 +261,21 @@ def bundle_var(name, fallback, yml_path):
         return m.group(1) if m else fallback
 
 
+def workspace_host(yml_path):
+    """Bare workspace host for the Job ID deep-link. Priority: DATABRICKS_HOST /
+    WORKSPACE_HOST env var, then databricks.yml targets.<default>.workspace.host."""
+    h = os.environ.get("DATABRICKS_HOST") or os.environ.get("WORKSPACE_HOST") or ""
+    if not h:
+        try:
+            import yaml
+            tg = (yaml.safe_load(open(yml_path)) or {}).get("targets", {}) or {}
+            t = next((v for v in tg.values() if v.get("default")), None) or next(iter(tg.values()), {})
+            h = ((t or {}).get("workspace", {}) or {}).get("host", "")
+        except Exception:
+            h = ""
+    return re.sub(r"^https?://", "", (h or "").strip()).rstrip("/")
+
+
 HERE = _repo_root()
 DASH = os.path.join(HERE, "dashboard", "Job Cluster Monitoring Dashboard.lvdash.json")
 YML = os.path.join(HERE, "databricks.yml")
@@ -259,9 +283,11 @@ OUT = os.environ.get("OUT", DASH)
 
 CATALOG = os.environ.get("CATALOG") or bundle_var("catalog", "hurcy", YML)
 SCHEMA = os.environ.get("SCHEMA") or bundle_var("analytics_schema", "test", YML)
+HOST = workspace_host(YML)
 print(f"target catalog.schema = {CATALOG}.{SCHEMA}  "
+      f"workspace_host = {HOST or '(unresolved — Job ID link host left unchanged)'}  "
       f"(source: {'env override' if os.environ.get('CATALOG') else 'databricks.yml'})")
 
-d = transform(json.load(open(DASH)), CATALOG, SCHEMA)
+d = transform(json.load(open(DASH)), CATALOG, SCHEMA, HOST)
 json.dump(d, open(OUT, "w"), indent=2, ensure_ascii=False)
-print(f"OK target={CATALOG}.{SCHEMA}  datasets={len(d['datasets'])}  pages={len(d['pages'])}  -> {OUT}")
+print(f"OK target={CATALOG}.{SCHEMA}  host={HOST}  datasets={len(d['datasets'])}  pages={len(d['pages'])}  -> {OUT}")
