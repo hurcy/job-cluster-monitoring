@@ -151,6 +151,46 @@ print(f"views ready: {FQ}.query_spill_v, {FQ}.cluster_disk_pressure_v")
 
 # COMMAND ----------
 
+# MAGIC %md ## 1b. cluster_names lookup (cluster_id → cluster_name)
+# MAGIC Used by the Disk Pressure & EXPANDED_DISK dashboard widgets to show cluster names.
+# MAGIC Prefers `system.compute.clusters`; if that is unprovisioned in this workspace, falls
+# MAGIC back to the Clusters REST API for the candidate clusters (so it never blocks the spill views).
+
+# COMMAND ----------
+
+try:
+    spark.sql(f"""
+        CREATE OR REPLACE TABLE {FQ}.cluster_names AS
+        SELECT cluster_id, MAX_BY(cluster_name, change_time) AS cluster_name
+        FROM system.compute.clusters
+        WHERE workspace_id = '{WORKSPACE_ID}'
+        GROUP BY cluster_id
+    """)
+    print(f"cluster_names: from system.compute.clusters ({spark.table(f'{FQ}.cluster_names').count()} rows)")
+except Exception as e:
+    print(f"[info] system.compute.clusters unavailable ({str(e)[:80]}); using Clusters API fallback")
+    from databricks.sdk import WorkspaceClient as _WC
+    from pyspark.sql.types import StructType, StructField, StringType
+    _w = _WC()
+    _cands = [r["cluster_id"] for r in spark.sql(f"""
+        SELECT DISTINCT cluster_id FROM system.compute.node_timeline
+        WHERE workspace_id = '{WORKSPACE_ID}'
+          AND start_time >= current_timestamp() - INTERVAL {LOOKBACK_DAYS} DAYS
+        LIMIT {MAX_CLUSTERS}
+    """).collect()]
+    _rows = []
+    for _cid in _cands:
+        try:
+            _c = _w.api_client.do("GET", "/api/2.0/clusters/get", body={"cluster_id": _cid})
+            _rows.append((_cid, _c.get("cluster_name")))
+        except Exception:
+            pass
+    _sc = StructType([StructField("cluster_id", StringType()), StructField("cluster_name", StringType())])
+    spark.createDataFrame(_rows, _sc).write.mode("overwrite").saveAsTable(f"{FQ}.cluster_names")
+    print(f"cluster_names: from Clusters API ({len(_rows)} rows)")
+
+# COMMAND ----------
+
 # MAGIC %md ## 2. Durable EXPANDED_DISK events table
 
 # COMMAND ----------

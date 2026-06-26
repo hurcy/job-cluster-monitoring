@@ -608,10 +608,12 @@
       "displayName": "Cluster disk-free / swap pressure",
       "queryLines": [
         "SELECT\n",
-        "  sample_date AS run_start_time,\n",
-        "  cluster_id, samples, avg_mem_pct, max_swap_pct, min_disk_free_gb, mins_disk_low, pressure_signal\n",
-        "FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.cluster_disk_pressure_v')\n",
-        "ORDER BY min_disk_free_gb ASC\n"
+        "  p.sample_date AS run_start_time,\n",
+        "  p.cluster_id, n.cluster_name, p.samples, p.avg_mem_pct, p.max_swap_pct,\n",
+        "  p.min_disk_free_gb, p.mins_disk_low, p.pressure_signal\n",
+        "FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.cluster_disk_pressure_v') p\n",
+        "LEFT JOIN IDENTIFIER(:p_catalog || '.' || :p_schema || '.cluster_names') n ON p.cluster_id = n.cluster_id\n",
+        "ORDER BY p.min_disk_free_gb ASC\n"
       ],
       "parameters": [
         {
@@ -651,10 +653,12 @@
       "displayName": "Actual EXPANDED_DISK events",
       "queryLines": [
         "SELECT\n",
-        "  event_date AS run_start_time,\n",
-        "  event_time, cluster_id, event_type, instance_id, previous_disk_size, disk_size, free_space_bytes, cause\n",
-        "FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.expanded_disk_events')\n",
-        "ORDER BY event_time DESC\n"
+        "  e.event_date AS run_start_time,\n",
+        "  e.event_time, e.cluster_id, n.cluster_name, e.event_type, e.instance_id,\n",
+        "  e.previous_disk_size, e.disk_size, e.free_space_bytes, e.cause\n",
+        "FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.expanded_disk_events') e\n",
+        "LEFT JOIN IDENTIFIER(:p_catalog || '.' || :p_schema || '.cluster_names') n ON e.cluster_id = n.cluster_id\n",
+        "ORDER BY e.event_time DESC\n"
       ],
       "parameters": [
         {
@@ -3283,6 +3287,10 @@
                       "expression": "`cluster_id`"
                     },
                     {
+                      "name": "cluster_name",
+                      "expression": "`cluster_name`"
+                    },
+                    {
                       "name": "run_start_time",
                       "expression": "`run_start_time`"
                     },
@@ -3322,7 +3330,11 @@
                 "columns": [
                   {
                     "fieldName": "cluster_id",
-                    "displayName": "Cluster"
+                    "displayName": "Cluster ID"
+                  },
+                  {
+                    "fieldName": "cluster_name",
+                    "displayName": "Cluster Name"
                   },
                   {
                     "fieldName": "run_start_time",
@@ -3386,12 +3398,20 @@
                   "datasetName": "ds-expanded-disk",
                   "fields": [
                     {
+                      "name": "run_start_time",
+                      "expression": "`run_start_time`"
+                    },
+                    {
                       "name": "event_time",
                       "expression": "`event_time`"
                     },
                     {
                       "name": "cluster_id",
                       "expression": "`cluster_id`"
+                    },
+                    {
+                      "name": "cluster_name",
+                      "expression": "`cluster_name`"
                     },
                     {
                       "name": "event_type",
@@ -3432,12 +3452,20 @@
               "encodings": {
                 "columns": [
                   {
+                    "fieldName": "run_start_time",
+                    "displayName": "Date"
+                  },
+                  {
                     "fieldName": "event_time",
                     "displayName": "Event Time"
                   },
                   {
                     "fieldName": "cluster_id",
-                    "displayName": "Cluster"
+                    "displayName": "Cluster ID"
+                  },
+                  {
+                    "fieldName": "cluster_name",
+                    "displayName": "Cluster Name"
                   },
                   {
                     "fieldName": "event_type",

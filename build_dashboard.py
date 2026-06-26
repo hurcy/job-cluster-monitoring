@@ -102,18 +102,22 @@ WHERE job_id IS NOT NULL
 
     d["datasets"].append(dataset("ds-disk-pressure", "Cluster disk-free / swap pressure", f"""
 SELECT
-  sample_date AS run_start_time,
-  cluster_id, samples, avg_mem_pct, max_swap_pct, min_disk_free_gb, mins_disk_low, pressure_signal
-FROM {ident('cluster_disk_pressure_v')}
-ORDER BY min_disk_free_gb ASC
+  p.sample_date AS run_start_time,
+  p.cluster_id, n.cluster_name, p.samples, p.avg_mem_pct, p.max_swap_pct,
+  p.min_disk_free_gb, p.mins_disk_low, p.pressure_signal
+FROM {ident('cluster_disk_pressure_v')} p
+LEFT JOIN {ident('cluster_names')} n ON p.cluster_id = n.cluster_id
+ORDER BY p.min_disk_free_gb ASC
 """))
 
     d["datasets"].append(dataset("ds-expanded-disk", "Actual EXPANDED_DISK events", f"""
 SELECT
-  event_date AS run_start_time,
-  event_time, cluster_id, event_type, instance_id, previous_disk_size, disk_size, free_space_bytes, cause
-FROM {ident('expanded_disk_events')}
-ORDER BY event_time DESC
+  e.event_date AS run_start_time,
+  e.event_time, e.cluster_id, n.cluster_name, e.event_type, e.instance_id,
+  e.previous_disk_size, e.disk_size, e.free_space_bytes, e.cause
+FROM {ident('expanded_disk_events')} e
+LEFT JOIN {ident('cluster_names')} n ON e.cluster_id = n.cluster_id
+ORDER BY e.event_time DESC
 """))
 
     # ---------- page 1: Disk Spill overview ----------
@@ -153,18 +157,19 @@ ORDER BY event_time DESC
         bar("spilld-pressure-dist", "ds-disk-pressure", "pressure_signal", "Pressure Signal",
             "count_distinct_cluster", "COUNT(DISTINCT `cluster_id`)", "Clusters", "Clusters by Pressure Signal", 0, 13, 2, 6),
         tbl("spilld-pressure", "ds-disk-pressure", [
-            ("cluster_id", "Cluster"), ("run_start_time", "Date"), ("min_disk_free_gb", "Min Disk Free (GB)"),
-            ("avg_mem_pct", "Avg Mem %"), ("max_swap_pct", "Max Swap %"), ("mins_disk_low", "Mins Disk<8GB"),
-            ("pressure_signal", "Signal")],
+            ("cluster_id", "Cluster ID"), ("cluster_name", "Cluster Name"), ("run_start_time", "Date"),
+            ("min_disk_free_gb", "Min Disk Free (GB)"), ("avg_mem_pct", "Avg Mem %"), ("max_swap_pct", "Max Swap %"),
+            ("mins_disk_low", "Mins Disk<8GB"), ("pressure_signal", "Signal")],
             "Cluster Disk Pressure (worst floors first)", 2, 13, 4, 6),
         text("spilld-sec-2", [
             "### Actual EXPANDED_DISK events (durable log)",
             "_Cluster Events API 기반. Serverless 는 이벤트가 없고, 종료된 job 클러스터는 ~30일 후 purge 되므로 "
             "초기에는 비어 있을 수 있다 — 매일 적재되며 시간이 지날수록 채워진다._"], 0, 19, 6, 2),
         tbl("spilld-events", "ds-expanded-disk", [
-            ("event_time", "Event Time"), ("cluster_id", "Cluster"), ("event_type", "Event"),
-            ("instance_id", "Instance"), ("previous_disk_size", "Prev Disk"), ("disk_size", "New Disk"),
-            ("free_space_bytes", "Free Bytes"), ("cause", "Cause")],
+            ("run_start_time", "Date"), ("event_time", "Event Time"), ("cluster_id", "Cluster ID"),
+            ("cluster_name", "Cluster Name"), ("event_type", "Event"), ("instance_id", "Instance"),
+            ("previous_disk_size", "Prev Disk"), ("disk_size", "New Disk"), ("free_space_bytes", "Free Bytes"),
+            ("cause", "Cause")],
             "EXPANDED_DISK / DID_NOT_EXPAND_DISK Events", 0, 21, 6, 6),
     ]}
 
