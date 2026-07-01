@@ -104,8 +104,9 @@ everything in one place, **parameterized by bundle
 variables** (`catalog`, `schema`, `workspace_id`): creates the schema, (re)creates both views
 (via Python f-strings, since `CREATE VIEW` rejects parameter markers), ensures the
 `expanded_disk_events` table, then ingests events. Deploy to any catalog.schema/workspace by
-changing the variables — **no per-customer SQL editing**. Retarget the dashboard with
-`CATALOG=… SCHEMA=… OUT=… python3 build_dashboard.py` (repo root).
+changing the variables — **no per-customer SQL editing**. After `databricks bundle deploy`,
+retarget the deployed dashboard with `python3 build_dashboard.py` (repo root) — it reads the
+dashboard via the Workspace Export API and writes it back via the Lakeview PATCH API.
 
 ## Configuration
 
@@ -149,4 +150,5 @@ workload_analysis/
    - `databricks bundle run workload_monitoring_refresh -t <target>` — runs both tasks:
      `workload_analysis_setup` (Right-Sizing tables, needs `system.compute.clusters`) and
      `spill_audit_setup` (Disk-Spill views + events).
-4. Retarget the dashboard for a different catalog.schema: `CATALOG=… SCHEMA=… OUT=… python3 build_dashboard.py` (repo root).
+4. Retarget the **deployed** dashboard for a different catalog.schema (run after deploy):
+   `CATALOG=… SCHEMA=… python3 build_dashboard.py` (repo root) — reads via Workspace Export API, writes via Lakeview PATCH API.

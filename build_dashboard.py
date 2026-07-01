@@ -6,12 +6,13 @@
 # MAGIC `p_catalog`/`p_schema` parameter default, the catalog/schema global filters, and the
 # MAGIC driver dataset) to a given `catalog.schema`. Idempotent.
 # MAGIC
-# MAGIC **Config comes from `databricks.yml` variables — no widgets.** Reads
-# MAGIC `variables.catalog.default` and `variables.analytics_schema.default` from
-# MAGIC `databricks.yml` and rewrites `dashboard/Job Cluster Monitoring Dashboard.lvdash.json`
-# MAGIC in place. `databricks bundle deploy` then deploys the retargeted dashboard — the
-# MAGIC warehouse (`${var.warehouse_id}`) and publish are handled by `resources/dashboard.yml`.
-# MAGIC `CATALOG=…/SCHEMA=…/OUT=…` env vars override the `databricks.yml` defaults.
+# MAGIC **Runs AFTER `databricks bundle deploy`.** Reads the DEPLOYED dashboard from the
+# MAGIC workspace via the **Workspace Export API**, retargets it, then writes it back via the
+# MAGIC **Lakeview dashboards PATCH API** — no local `.lvdash.json` I/O. catalog/schema come
+# MAGIC from `databricks.yml` (`CATALOG`/`SCHEMA` env override). The dashboard is located by
+# MAGIC display name `[<target>] Job Cluster Monitoring Dashboard`
+# MAGIC (`DASHBOARD_ID`/`DASHBOARD_NAME`/`TARGET` env override). Auth = standard Databricks
+# MAGIC SDK resolution (profile from the bundle target, or env).
 # MAGIC
 # MAGIC Run with `python3 build_dashboard.py` (or, in a notebook, **Run All**).
 
@@ -239,10 +240,17 @@ ORDER BY e.event_time DESC
 # COMMAND ----------
 
 
-# ===== Read databricks.yml variables → rewrite the .lvdash.json in place =====
-# No widgets. catalog/schema come from databricks.yml (CATALOG/SCHEMA/OUT env vars override).
-# `databricks bundle deploy` then deploys the retargeted file (resources/dashboard.yml
-# supplies the warehouse via ${var.warehouse_id} and publishes).
+# ===== Read DEPLOYED dashboard (Workspace Export API) → retarget → PATCH (Lakeview) =====
+# Runs AFTER `databricks bundle deploy` created the dashboard. No local .lvdash.json I/O:
+#   1. resolve the deployed Lakeview dashboard (id + workspace path) by display name,
+#   2. READ its definition via the Workspace EXPORT API,
+#   3. add the Disk-Spill pages + retarget catalog/schema (transform()),
+#   4. WRITE it back via the Lakeview dashboards PATCH API.
+# catalog/schema come from databricks.yml (CATALOG/SCHEMA env override). Auth follows the
+# standard Databricks SDK chain (bundle-target profile, DATABRICKS_CONFIG_PROFILE, or env).
+
+import base64
+from databricks.sdk import WorkspaceClient
 
 
 def _repo_root():
@@ -267,33 +275,90 @@ def bundle_var(name, fallback, yml_path):
         return m.group(1) if m else fallback
 
 
-def workspace_host(yml_path):
-    """Bare workspace host for the Job ID deep-link. Priority: DATABRICKS_HOST /
-    WORKSPACE_HOST env var, then databricks.yml targets.<default>.workspace.host."""
-    h = os.environ.get("DATABRICKS_HOST") or os.environ.get("WORKSPACE_HOST") or ""
-    if not h:
-        try:
-            import yaml
-            tg = (yaml.safe_load(open(yml_path)) or {}).get("targets", {}) or {}
-            t = next((v for v in tg.values() if v.get("default")), None) or next(iter(tg.values()), {})
-            h = ((t or {}).get("workspace", {}) or {}).get("host", "")
-        except Exception:
-            h = ""
-    return re.sub(r"^https?://", "", (h or "").strip()).rstrip("/")
+def _targets(yml_path):
+    try:
+        import yaml
+        return (yaml.safe_load(open(yml_path)) or {}).get("targets", {}) or {}
+    except Exception:
+        return {}
+
+
+def default_target(yml_path):
+    """Bundle target: TARGET / DATABRICKS_BUNDLE_TARGET env, else the default:true target."""
+    t = os.environ.get("DATABRICKS_BUNDLE_TARGET") or os.environ.get("TARGET")
+    if t:
+        return t
+    tg = _targets(yml_path)
+    for k, v in tg.items():
+        if (v or {}).get("default"):
+            return k
+    return next(iter(tg), "dev")
+
+
+def target_profile(yml_path, target):
+    """~/.databrickscfg profile for the target (so we hit the workspace the bundle deployed to)."""
+    return ((_targets(yml_path).get(target, {}) or {}).get("workspace", {}) or {}).get("profile")
+
+
+def resolve_dashboard(w, display_name):
+    """Locate the deployed Lakeview dashboard by display name (DASHBOARD_ID env overrides).
+    Returns (dashboard_id, workspace_path, warehouse_id, etag)."""
+    did = os.environ.get("DASHBOARD_ID")
+    if did:
+        g = w.api_client.do("GET", f"/api/2.0/lakeview/dashboards/{did}")
+        return did, g.get("path"), g.get("warehouse_id"), g.get("etag")
+    token, match = None, None
+    while match is None:
+        q = {"page_size": 1000}
+        if token:
+            q["page_token"] = token
+        resp = w.api_client.do("GET", "/api/2.0/lakeview/dashboards", query=q)
+        for db in resp.get("dashboards", []):
+            if db.get("lifecycle_state") == "TRASHED":
+                continue
+            if db.get("display_name") == display_name:
+                match = db
+                break
+        token = resp.get("next_page_token")
+        if not token:
+            break
+    if match is None:
+        raise SystemExit(f"deployed dashboard not found by display_name={display_name!r} — "
+                         f"deploy first (`databricks bundle deploy`) or set DASHBOARD_ID.")
+    return match["dashboard_id"], match.get("path"), match.get("warehouse_id"), match.get("etag")
+
+
+def read_serialized(w, path):
+    """Read the deployed dashboard definition via the Workspace EXPORT API (base64 -> dict)."""
+    resp = w.api_client.do("GET", "/api/2.0/workspace/export",
+                           query={"path": path, "format": "SOURCE"})
+    return json.loads(base64.b64decode(resp["content"]).decode("utf-8"))
 
 
 HERE = _repo_root()
-DASH = os.path.join(HERE, "dashboard", "Job Cluster Monitoring Dashboard.lvdash.json")
 YML = os.path.join(HERE, "databricks.yml")
-OUT = os.environ.get("OUT", DASH)
 
 CATALOG = os.environ.get("CATALOG") or bundle_var("catalog", "hurcy", YML)
 SCHEMA = os.environ.get("SCHEMA") or bundle_var("analytics_schema", "test", YML)
-HOST = workspace_host(YML)
-print(f"target catalog.schema = {CATALOG}.{SCHEMA}  "
-      f"workspace_host = {HOST or '(unresolved — Job ID link host left unchanged)'}  "
-      f"(source: {'env override' if os.environ.get('CATALOG') else 'databricks.yml'})")
+TARGET = default_target(YML)
+DISPLAY_NAME = os.environ.get("DASHBOARD_NAME") or f"[{TARGET}] Job Cluster Monitoring Dashboard"
 
-d = transform(json.load(open(DASH)), CATALOG, SCHEMA, HOST)
-json.dump(d, open(OUT, "w"), indent=2, ensure_ascii=False)
-print(f"OK target={CATALOG}.{SCHEMA}  host={HOST}  datasets={len(d['datasets'])}  pages={len(d['pages'])}  -> {OUT}")
+PROFILE = os.environ.get("DATABRICKS_CONFIG_PROFILE") or target_profile(YML, TARGET)
+w = WorkspaceClient(profile=PROFILE) if PROFILE else WorkspaceClient()
+HOST = re.sub(r"^https?://", "", (os.environ.get("DATABRICKS_HOST") or w.config.host or "")).rstrip("/")
+
+dash_id, path, warehouse_id, etag = resolve_dashboard(w, DISPLAY_NAME)
+print(f"dashboard={DISPLAY_NAME!r}  id={dash_id}  path={path}")
+print(f"target={CATALOG}.{SCHEMA}  host={HOST}  (profile={PROFILE or 'default'})")
+
+# 1) READ via Workspace Export API  ->  2) retarget  ->  3) WRITE via Lakeview PATCH API
+d = transform(read_serialized(w, path), CATALOG, SCHEMA, HOST)
+
+body = {"serialized_dashboard": json.dumps(d, ensure_ascii=False)}
+if warehouse_id:
+    body["warehouse_id"] = warehouse_id
+if etag:
+    body["etag"] = etag
+w.api_client.do("PATCH", f"/api/2.0/lakeview/dashboards/{dash_id}", body=body)
+print(f"OK PATCHed dashboard {dash_id}: target={CATALOG}.{SCHEMA} "
+      f"datasets={len(d['datasets'])} pages={len(d['pages'])}")
