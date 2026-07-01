@@ -98,12 +98,15 @@ SELECT
   ROUND(AVG(cpu_user_percent + cpu_system_percent), 2)                    AS avg_cpu_util,
   ROUND(PERCENTILE_APPROX(cpu_user_percent + cpu_system_percent, 0.5), 2) AS median_cpu_util,
   ROUND(MAX(cpu_user_percent + cpu_system_percent), 2)                    AS max_cpu_util,
+  ROUND(PERCENTILE_APPROX(cpu_user_percent + cpu_system_percent, 0.95), 2) AS p95_cpu_util,
   ROUND(STDDEV(cpu_user_percent + cpu_system_percent), 2)                 AS stddev_cpu_util,
   ROUND(AVG(cpu_wait_percent), 2)                      AS avg_cpu_wait,
   ROUND(MAX(cpu_wait_percent), 2)                      AS max_cpu_wait,
   ROUND(AVG(mem_used_percent), 2)                      AS avg_mem_util,
   ROUND(PERCENTILE_APPROX(mem_used_percent, 0.5), 2)   AS median_mem_util,
   ROUND(MAX(mem_used_percent), 2)                      AS max_mem_util,
+  ROUND(PERCENTILE_APPROX(mem_used_percent, 0.95), 2)  AS p95_mem_util,
+  ROUND(MAX(mem_swap_percent), 2)                      AS max_swap_pct,
   ROUND(STDDEV(mem_used_percent), 2)                   AS stddev_mem_util,
   ROUND(AVG(network_received_bytes) / POW(1024, 2), 2) AS avg_net_mb_rec_minute,
   ROUND(AVG(network_sent_bytes) / POW(1024, 2), 2)     AS avg_net_mb_sent_minute,
@@ -134,6 +137,48 @@ FROM (
 -- 멀티노드: 워커(driver=FALSE)만. 싱글노드(워커 없음): 드라이버 포함 → util 측정.
 WHERE driver = FALSE OR has_worker = 0
 GROUP BY workspace_id, cluster_id, driver, node_type, instance_id;
+
+
+-- =================================================================
+-- 3b. cluster_spill_v / job_spill_v  [TEMPORARY VIEW]
+-- =================================================================
+-- 실제 디스크 스필(spilled_local_bytes)을 system.query.history에서 집계.
+-- 메모리 부족(→ GC 압박 / OOM)의 직접 증거. system 테이블에 executor GC time
+-- 컬럼이 없으므로, 스필 + 스왑(node_timeline.mem_swap_percent)을 GC/메모리
+-- 압박의 대체 신호로 사용한다.
+-- 주의: query.history는 SQL/DataFrame 실행 경로 위주라 순수 RDD 스필은 누락될
+-- 수 있음 → 항상 존재하는 node_timeline 스왑 신호와 함께 판정한다.
+-- =================================================================
+
+CREATE OR REPLACE TEMPORARY VIEW cluster_spill_v AS
+SELECT workspace_id, cluster_id,
+       ROUND(SUM(spilled_local_bytes) / 1e9, 2) AS spill_gb,
+       COUNT(*)                                 AS spill_statements
+FROM (
+  SELECT workspace_id, compute.cluster_id AS cluster_id, spilled_local_bytes
+  FROM system.query.history
+  WHERE workspace_id = '${workspace_id}'
+    AND start_time >= DATE_SUB(CURRENT_DATE(), 90)
+    AND start_time <  CURRENT_DATE()
+    AND spilled_local_bytes > 0
+    AND compute.cluster_id IS NOT NULL
+)
+GROUP BY workspace_id, cluster_id;
+
+CREATE OR REPLACE TEMPORARY VIEW job_spill_v AS
+SELECT workspace_id, job_id,
+       ROUND(SUM(spilled_local_bytes) / 1e9, 2) AS spill_gb,
+       COUNT(*)                                 AS spill_statements
+FROM (
+  SELECT workspace_id, query_source.job_info.job_id AS job_id, spilled_local_bytes
+  FROM system.query.history
+  WHERE workspace_id = '${workspace_id}'
+    AND start_time >= DATE_SUB(CURRENT_DATE(), 90)
+    AND start_time <  CURRENT_DATE()
+    AND spilled_local_bytes > 0
+    AND query_source.job_info.job_id IS NOT NULL
+)
+GROUP BY workspace_id, job_id;
 
 
 -- =================================================================
@@ -551,11 +596,14 @@ WITH cluster_util AS (
     ROUND(AVG(avg_cpu_util), 2)                     AS avg_cpu_util,
     ROUND(AVG(median_cpu_util), 2)                  AS median_cpu_util,
     ROUND(MAX(max_cpu_util), 2)                     AS peak_cpu_util,
+    ROUND(MAX(p95_cpu_util), 2)                     AS p95_cpu_util,
     ROUND(AVG(stddev_cpu_util), 2)                  AS avg_stddev_cpu,
     ROUND(AVG(avg_cpu_wait), 2)                     AS avg_cpu_wait,
     ROUND(AVG(avg_mem_util), 2)                     AS avg_mem_util,
     ROUND(AVG(median_mem_util), 2)                  AS median_mem_util,
     ROUND(MAX(max_mem_util), 2)                     AS peak_mem_util,
+    ROUND(MAX(p95_mem_util), 2)                     AS p95_mem_util,
+    ROUND(MAX(max_swap_pct), 2)                     AS max_swap_pct,
     ROUND(AVG(stddev_mem_util), 2)                  AS avg_stddev_mem
   FROM instance_utilization_v
   GROUP BY workspace_id, cluster_id
@@ -590,15 +638,17 @@ SELECT
   -- utilization: cluster 단위 직접 집계 (1:1 JOIN)
   cu.avg_cpu_util,
   cu.median_cpu_util,
-  cu.peak_cpu_util                                            AS p95_cpu_util,
+  cu.p95_cpu_util                                            AS p95_cpu_util,
   cu.peak_cpu_util,
   cu.avg_stddev_cpu,
   cu.avg_mem_util,
   cu.median_mem_util,
-  cu.peak_mem_util                                            AS p95_mem_util,
+  cu.p95_mem_util                                            AS p95_mem_util,
   cu.peak_mem_util,
   cu.avg_stddev_mem,
   cu.avg_cpu_wait,
+  COALESCE(cu.max_swap_pct, 0)                               AS max_swap_pct,
+  COALESCE(cs.spill_gb, 0)                                   AS spill_gb,
   COALESCE(cu.instance_count, 0)                              AS avg_instance_count,
 
   ROUND(SUM(cjc.total_dbus), 4)                               AS total_dbus,
@@ -622,7 +672,10 @@ SELECT
      AND cu.median_cpu_util < 25 AND cu.median_mem_util < 35
       THEN 'LIKELY_DOWNSIZE'
     WHEN apt.window_run_count >= 3
-     AND (cu.peak_cpu_util > 85 OR cu.peak_mem_util > 85)
+     AND (cu.p95_mem_util > 85
+       OR COALESCE(cu.max_swap_pct, 0) > 0
+       OR COALESCE(cs.spill_gb, 0) > 50
+       OR (cu.p95_cpu_util > 85 AND cu.p95_mem_util > 60))
       THEN 'CONSIDER_UPSIZE'
     WHEN cu.avg_cpu_wait > 10
       THEN 'IO_BOTTLENECK'
@@ -648,8 +701,20 @@ SELECT
      AND cu.median_cpu_util < 25 AND cu.median_mem_util < 35
       THEN '워커 수 30% 감소 또는 인스턴스 타입 축소 검토. 평균·median 활용률이 지속적으로 낮음.'
     WHEN apt.window_run_count >= 3
-     AND (cu.peak_cpu_util > 85 OR cu.peak_mem_util > 85)
-      THEN '리소스 한계 근접. 워커 추가 또는 더 큰 인스턴스 타입 검토 필요.'
+     AND (cu.p95_mem_util > 85
+       OR COALESCE(cu.max_swap_pct, 0) > 0
+       OR COALESCE(cs.spill_gb, 0) > 50
+       OR (cu.p95_cpu_util > 85 AND cu.p95_mem_util > 60))
+      THEN CONCAT('리소스 한계 근접. ',
+        CASE
+          WHEN COALESCE(cu.max_swap_pct, 0) > 0
+            THEN CONCAT('메모리 스왑 발생(max ', cu.max_swap_pct, '%) — RAM 고갈. 메모리 최적화 인스턴스로 상향 강력 권고.')
+          WHEN COALESCE(cs.spill_gb, 0) > 50
+            THEN CONCAT('디스크 스필 ', cs.spill_gb, 'GB — 메모리 부족. 메모리 최적화 워커 또는 shuffle 파티션 증가 검토.')
+          WHEN cu.p95_mem_util > 85
+            THEN CONCAT('메모리 P95 ', cu.p95_mem_util, '% 지속 포화 — 메모리 상향 또는 워커 추가 권고.')
+          ELSE CONCAT('CPU P95 ', cu.p95_cpu_util, '%/메모리 P95 ', cu.p95_mem_util, '% 지속 포화 — 워커 추가 또는 큰 인스턴스 검토.')
+        END)
     WHEN cu.avg_cpu_wait > 10
       THEN 'I/O 병목 감지. 스토리지 최적화 또는 EBS 성능 개선 권고.'
     WHEN cu.avg_cpu_util IS NULL OR cu.avg_mem_util IS NULL
@@ -685,6 +750,9 @@ LEFT JOIN cluster_util cu
 LEFT JOIN cluster_run_totals apt
   ON  cjc.workspace_id = apt.workspace_id
   AND cjc.cluster_id   = apt.cluster_id
+LEFT JOIN cluster_spill_v cs
+  ON  cjc.workspace_id = cs.workspace_id
+  AND cjc.cluster_id   = cs.cluster_id
 WHERE cjc.is_serverless = false
   AND cjc.cluster_source IN ('UI', 'API')
 GROUP BY
@@ -693,9 +761,10 @@ GROUP BY
   cjc.configured_workers, cjc.min_autoscale_workers, cjc.max_autoscale_workers,
   cjc.dbr_version, cjc.policy_id,
   CAST(cjc.run_start_time AS DATE),
-  cu.avg_cpu_util, cu.median_cpu_util, cu.peak_cpu_util,
+  cu.avg_cpu_util, cu.median_cpu_util, cu.peak_cpu_util, cu.p95_cpu_util,
   cu.avg_stddev_cpu, cu.avg_cpu_wait,
-  cu.avg_mem_util, cu.median_mem_util, cu.peak_mem_util,
+  cu.avg_mem_util, cu.median_mem_util, cu.peak_mem_util, cu.p95_mem_util,
+  cu.max_swap_pct, cs.spill_gb,
   cu.avg_stddev_mem, cu.instance_count,
   apt.window_run_count
 ;
@@ -743,11 +812,14 @@ job_util AS (
     ROUND(AVG(iu.avg_cpu_util), 2)             AS avg_cpu_util,
     ROUND(AVG(iu.median_cpu_util), 2)          AS median_cpu_util,
     ROUND(MAX(iu.max_cpu_util), 2)             AS peak_cpu_util,
+    ROUND(MAX(iu.p95_cpu_util), 2)             AS p95_cpu_util,
     ROUND(AVG(iu.stddev_cpu_util), 2)          AS avg_stddev_cpu,
     ROUND(AVG(iu.avg_cpu_wait), 2)             AS avg_cpu_wait,
     ROUND(AVG(iu.avg_mem_util), 2)             AS avg_mem_util,
     ROUND(AVG(iu.median_mem_util), 2)          AS median_mem_util,
     ROUND(MAX(iu.max_mem_util), 2)             AS peak_mem_util,
+    ROUND(MAX(iu.p95_mem_util), 2)             AS p95_mem_util,
+    ROUND(MAX(iu.max_swap_pct), 2)             AS max_swap_pct,
     ROUND(AVG(iu.stddev_mem_util), 2)          AS avg_stddev_mem
   FROM (
     SELECT DISTINCT workspace_id, job_id, cluster_id
@@ -781,15 +853,17 @@ SELECT
 
   ju.avg_cpu_util,
   ju.median_cpu_util,
-  ju.peak_cpu_util                                           AS p95_cpu_util,
+  ju.p95_cpu_util                                           AS p95_cpu_util,
   ju.peak_cpu_util,
   ju.avg_stddev_cpu,
   ju.avg_mem_util,
   ju.median_mem_util,
-  ju.peak_mem_util                                           AS p95_mem_util,
+  ju.p95_mem_util                                           AS p95_mem_util,
   ju.peak_mem_util,
   ju.avg_stddev_mem,
   ju.avg_cpu_wait,
+  COALESCE(ju.max_swap_pct, 0)                              AS max_swap_pct,
+  COALESCE(js.spill_gb, 0)                                  AS spill_gb,
   COALESCE(ju.instance_count, 0)                             AS avg_instance_count,
 
   jc.total_dbus,
@@ -813,7 +887,10 @@ SELECT
      AND ju.median_cpu_util < 25 AND ju.median_mem_util < 35
       THEN 'LIKELY_DOWNSIZE'
     WHEN jc.run_count >= 3
-     AND (ju.peak_cpu_util > 85 OR ju.peak_mem_util > 85)
+     AND (ju.p95_mem_util > 85
+       OR COALESCE(ju.max_swap_pct, 0) > 0
+       OR COALESCE(js.spill_gb, 0) > 50
+       OR (ju.p95_cpu_util > 85 AND ju.p95_mem_util > 60))
       THEN 'CONSIDER_UPSIZE'
     WHEN ju.avg_cpu_wait > 10
       THEN 'IO_BOTTLENECK'
@@ -839,8 +916,20 @@ SELECT
      AND ju.median_cpu_util < 25 AND ju.median_mem_util < 35
       THEN '워커 수 30% 감소 또는 인스턴스 타입 축소 검토. 평균·median 활용률이 지속적으로 낮음.'
     WHEN jc.run_count >= 3
-     AND (ju.peak_cpu_util > 85 OR ju.peak_mem_util > 85)
-      THEN '리소스 한계 근접. 워커 추가 또는 더 큰 인스턴스 타입 검토 필요.'
+     AND (ju.p95_mem_util > 85
+       OR COALESCE(ju.max_swap_pct, 0) > 0
+       OR COALESCE(js.spill_gb, 0) > 50
+       OR (ju.p95_cpu_util > 85 AND ju.p95_mem_util > 60))
+      THEN CONCAT('리소스 한계 근접. ',
+        CASE
+          WHEN COALESCE(ju.max_swap_pct, 0) > 0
+            THEN CONCAT('메모리 스왑 발생(max ', ju.max_swap_pct, '%) — RAM 고갈. 메모리 최적화 인스턴스로 상향 강력 권고.')
+          WHEN COALESCE(js.spill_gb, 0) > 50
+            THEN CONCAT('디스크 스필 ', js.spill_gb, 'GB — 메모리 부족. 메모리 최적화 워커 또는 shuffle 파티션 증가 검토.')
+          WHEN ju.p95_mem_util > 85
+            THEN CONCAT('메모리 P95 ', ju.p95_mem_util, '% 지속 포화 — 메모리 상향 또는 워커 추가 권고.')
+          ELSE CONCAT('CPU P95 ', ju.p95_cpu_util, '%/메모리 P95 ', ju.p95_mem_util, '% 지속 포화 — 워커 추가 또는 큰 인스턴스 검토.')
+        END)
     WHEN ju.avg_cpu_wait > 10
       THEN 'I/O 병목 감지. 스토리지 최적화 또는 EBS 성능 개선 권고.'
     WHEN ju.avg_cpu_util IS NULL OR ju.avg_mem_util IS NULL
@@ -873,6 +962,9 @@ FROM job_clusters jc
 LEFT JOIN job_util ju
   ON  jc.workspace_id = ju.workspace_id
   AND jc.job_id       = ju.job_id
+LEFT JOIN job_spill_v js
+  ON  jc.workspace_id = js.workspace_id
+  AND jc.job_id       = js.job_id
 ;
 
 
@@ -913,6 +1005,8 @@ SELECT
   peak_cpu_util,
   avg_stddev_cpu,
   avg_cpu_wait,
+  max_swap_pct,
+  spill_gb,
   avg_mem_util,
   median_mem_util,
   p95_mem_util,
@@ -955,6 +1049,8 @@ SELECT
   peak_cpu_util,
   avg_stddev_cpu,
   avg_cpu_wait,
+  max_swap_pct,
+  spill_gb,
   avg_mem_util,
   median_mem_util,
   p95_mem_util,
