@@ -98,8 +98,9 @@ window: **last 30 days**, workspace-scoped.
 `root_cause` ∈ {`WIDE_SHUFFLE`, `NO_PRUNING`, `MV_REFRESH`, `MEMORY_BOUND`, `MODERATE`}.
 These feed the dashboard's **Disk Spill** and **Spill Detail & Expanded Disk** pages.
 
-**Deployment** — `spill_audit_setup.py` (run by the `Spill Audit Refresh` job on a **classic
-single-node cluster**, no serverless) does everything in one place, **parameterized by bundle
+**Deployment** — `spill_audit_setup.py` (run by the `spill_audit_setup` task of the merged
+`Workload Monitoring Refresh` job on a **classic single-node cluster**, no serverless) does
+everything in one place, **parameterized by bundle
 variables** (`catalog`, `schema`, `workspace_id`): creates the schema, (re)creates both views
 (via Python f-strings, since `CREATE VIEW` rejects parameter markers), ensures the
 `expanded_disk_events` table, then ingests events. Deploy to any catalog.schema/workspace by
@@ -108,13 +109,25 @@ changing the variables — **no per-customer SQL editing**. Retarget the dashboa
 
 ## Configuration
 
-`workload_analysis_setup.py` notebook widgets (set from bundle variables by the `daily_mv_refresh` job):
+`workload_analysis_setup.py` notebook widgets (the `workload_analysis_setup` task of the
+`Workload Monitoring Refresh` job supplies these via `base_parameters`):
 
-| Widget | Description |
-|--------|-------------|
-| `catalog` | Output catalog for the analysis tables |
-| `schema` | Output schema |
-| `workspace_id` | Workspace ID used to scope every `system.*` read |
+| Widget | Default | Description |
+|--------|---------|-------------|
+| `catalog` | — | Output catalog for the analysis tables |
+| `schema` | — | Output schema |
+| `workspace_id` | — | Workspace ID used to scope every `system.*` read |
+| `min_runs` | `3` | Min runs in 90d before a sizing verdict is issued |
+| `downsize_cpu_avg` / `downsize_mem_avg` | `20` / `30` | `DEFINITE_DOWNSIZE`: avg CPU% / Mem% below |
+| `likely_cpu_avg` / `likely_mem_avg` | `30` / `40` | `LIKELY_DOWNSIZE`: avg CPU% / Mem% below |
+| `upsize_cpu_p95` / `upsize_mem_p95` | `85` / `85` | `CONSIDER_UPSIZE`: CPU / Mem **P95%** above |
+| `swap_pct` | `0` | `CONSIDER_UPSIZE`: max swap% above (0 = any swap; raise to reduce false positives) |
+| `spill_gb` | `50` | `CONSIDER_UPSIZE`: 90d disk-spill GB above |
+| `iowait_pct` | `10` | `IO_BOTTLENECK`: avg CPU iowait% above |
+
+> These thresholds are the ones tabulated in **Sizing Recommendation Signals** above. Override
+> per-run from the Jobs UI (*Run now with different parameters*) or change the `base_parameters`
+> defaults in `resources/jobs.yml`.
 
 ## Directory Structure
 
@@ -132,7 +145,8 @@ workload_analysis/
 
 1. Set bundle variables (`catalog`, `analytics_schema`, `workspace_id`, `warehouse_id`) in `databricks.yml`.
 2. `databricks bundle deploy -t <target>`.
-3. Run the analysis jobs (classic clusters — **no serverless, no SDP**):
-   - `databricks bundle run daily_mv_refresh -t <target>` — Right-Sizing tables (needs `system.compute.clusters`).
-   - `databricks bundle run spill_audit_refresh -t <target>` — Disk-Spill views + events.
+3. Run the merged analysis job (classic clusters — **no serverless, no SDP**):
+   - `databricks bundle run workload_monitoring_refresh -t <target>` — runs both tasks:
+     `workload_analysis_setup` (Right-Sizing tables, needs `system.compute.clusters`) and
+     `spill_audit_setup` (Disk-Spill views + events).
 4. Retarget the dashboard for a different catalog.schema: `CATALOG=… SCHEMA=… OUT=… python3 build_dashboard.py` (repo root).

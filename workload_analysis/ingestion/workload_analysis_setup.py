@@ -18,10 +18,30 @@ dbutils.widgets.text("catalog", "hurcy", "Target catalog")
 dbutils.widgets.text("schema", "test", "Target schema (analytics)")
 dbutils.widgets.text("workspace_id", "984752964297111", "Workspace id to scope")
 
+# --- Tunable right-sizing thresholds (overridable as job / notebook parameters) ---
+dbutils.widgets.text("min_runs", "3", "Min runs in 90d to judge sizing")
+dbutils.widgets.text("downsize_cpu_avg", "20", "DEFINITE_DOWNSIZE: avg CPU% below")
+dbutils.widgets.text("downsize_mem_avg", "30", "DEFINITE_DOWNSIZE: avg Mem% below")
+dbutils.widgets.text("likely_cpu_avg", "30", "LIKELY_DOWNSIZE: avg CPU% below")
+dbutils.widgets.text("likely_mem_avg", "40", "LIKELY_DOWNSIZE: avg Mem% below")
+dbutils.widgets.text("upsize_mem_p95", "85", "CONSIDER_UPSIZE: Mem P95% above")
+dbutils.widgets.text("upsize_cpu_p95", "85", "CONSIDER_UPSIZE: CPU P95% above")
+dbutils.widgets.text("swap_pct", "0", "CONSIDER_UPSIZE: max swap% above")
+dbutils.widgets.text("spill_gb", "50", "CONSIDER_UPSIZE: 90d spill GB above")
+dbutils.widgets.text("iowait_pct", "10", "IO_BOTTLENECK: avg CPU iowait% above")
+
 CATALOG = dbutils.widgets.get("catalog")
 SCHEMA = dbutils.widgets.get("schema")
 WORKSPACE_ID = dbutils.widgets.get("workspace_id")
+
+# These threshold placeholders are substituted into SQL_SCRIPT at the end of this notebook.
+THRESHOLDS = {k: dbutils.widgets.get(k) for k in [
+    "min_runs", "downsize_cpu_avg", "downsize_mem_avg", "likely_cpu_avg",
+    "likely_mem_avg", "upsize_mem_p95", "upsize_cpu_p95", "swap_pct",
+    "spill_gb", "iowait_pct",
+]}
 print(f"target={CATALOG}.{SCHEMA}  workspace_id={WORKSPACE_ID}")
+print("thresholds:", THRESHOLDS)
 
 # COMMAND ----------
 
@@ -655,88 +675,88 @@ SELECT
   ROUND(SUM(cjc.total_cost_usd), 2)                           AS total_cost_usd,
 
   CASE
-    WHEN apt.window_run_count >= 3
+    WHEN apt.window_run_count >= ${min_runs}
      AND cu.median_cpu_util < 30
      AND cu.median_mem_util < 40
      AND (cu.avg_stddev_cpu > 20 OR cu.peak_cpu_util > 80
       OR  cu.avg_stddev_mem > 20 OR cu.peak_mem_util > 80)
       THEN 'BURST_PATTERN'
-    WHEN apt.window_run_count >= 3
-     AND cu.avg_cpu_util < 20
-     AND cu.avg_mem_util < 30
+    WHEN apt.window_run_count >= ${min_runs}
+     AND cu.avg_cpu_util < ${downsize_cpu_avg}
+     AND cu.avg_mem_util < ${downsize_mem_avg}
      AND cu.median_cpu_util < 15
      AND cu.avg_stddev_cpu < 15
       THEN 'DEFINITE_DOWNSIZE'
-    WHEN apt.window_run_count >= 3
-     AND cu.avg_cpu_util < 30 AND cu.avg_mem_util < 40
+    WHEN apt.window_run_count >= ${min_runs}
+     AND cu.avg_cpu_util < ${likely_cpu_avg} AND cu.avg_mem_util < ${likely_mem_avg}
      AND cu.median_cpu_util < 25 AND cu.median_mem_util < 35
       THEN 'LIKELY_DOWNSIZE'
-    WHEN apt.window_run_count >= 3
-     AND (cu.p95_mem_util > 85
-       OR COALESCE(cu.max_swap_pct, 0) > 0
-       OR COALESCE(cs.spill_gb, 0) > 50
-       OR (cu.p95_cpu_util > 85 AND cu.p95_mem_util > 60))
+    WHEN apt.window_run_count >= ${min_runs}
+     AND (cu.p95_mem_util > ${upsize_mem_p95}
+       OR COALESCE(cu.max_swap_pct, 0) > ${swap_pct}
+       OR COALESCE(cs.spill_gb, 0) > ${spill_gb}
+       OR (cu.p95_cpu_util > ${upsize_cpu_p95} AND cu.p95_mem_util > 60))
       THEN 'CONSIDER_UPSIZE'
-    WHEN cu.avg_cpu_wait > 10
+    WHEN cu.avg_cpu_wait > ${iowait_pct}
       THEN 'IO_BOTTLENECK'
     WHEN cu.avg_cpu_util IS NULL OR cu.avg_mem_util IS NULL
       THEN 'NO_UTIL_DATA'
-    WHEN COALESCE(apt.window_run_count, 0) < 3
+    WHEN COALESCE(apt.window_run_count, 0) < ${min_runs}
       THEN 'INSUFFICIENT_RUNS'
     ELSE 'APPROPRIATE'
   END AS sizing_recommendation,
 
   CASE
-    WHEN apt.window_run_count >= 3
+    WHEN apt.window_run_count >= ${min_runs}
      AND cu.median_cpu_util < 30 AND cu.median_mem_util < 40
      AND (cu.avg_stddev_cpu > 20 OR cu.peak_cpu_util > 80
       OR  cu.avg_stddev_mem > 20 OR cu.peak_mem_util > 80)
       THEN 'Burst 패턴 감지: median은 낮지만 순간 부하가 높아 현재 크기 유지 권고. Autoscaling 활용 검토.'
-    WHEN apt.window_run_count >= 3
-     AND cu.avg_cpu_util < 20 AND cu.avg_mem_util < 30
+    WHEN apt.window_run_count >= ${min_runs}
+     AND cu.avg_cpu_util < ${downsize_cpu_avg} AND cu.avg_mem_util < ${downsize_mem_avg}
      AND cu.median_cpu_util < 15 AND cu.avg_stddev_cpu < 15
       THEN '워커 수 50% 감소 또는 더 작은 인스턴스 타입으로 전환 강력 권고. median/P95/분산 모두 매우 낮음.'
-    WHEN apt.window_run_count >= 3
-     AND cu.avg_cpu_util < 30 AND cu.avg_mem_util < 40
+    WHEN apt.window_run_count >= ${min_runs}
+     AND cu.avg_cpu_util < ${likely_cpu_avg} AND cu.avg_mem_util < ${likely_mem_avg}
      AND cu.median_cpu_util < 25 AND cu.median_mem_util < 35
       THEN '워커 수 30% 감소 또는 인스턴스 타입 축소 검토. 평균·median 활용률이 지속적으로 낮음.'
-    WHEN apt.window_run_count >= 3
-     AND (cu.p95_mem_util > 85
-       OR COALESCE(cu.max_swap_pct, 0) > 0
-       OR COALESCE(cs.spill_gb, 0) > 50
-       OR (cu.p95_cpu_util > 85 AND cu.p95_mem_util > 60))
+    WHEN apt.window_run_count >= ${min_runs}
+     AND (cu.p95_mem_util > ${upsize_mem_p95}
+       OR COALESCE(cu.max_swap_pct, 0) > ${swap_pct}
+       OR COALESCE(cs.spill_gb, 0) > ${spill_gb}
+       OR (cu.p95_cpu_util > ${upsize_cpu_p95} AND cu.p95_mem_util > 60))
       THEN CONCAT('리소스 한계 근접. ',
         CASE
-          WHEN COALESCE(cu.max_swap_pct, 0) > 0
+          WHEN COALESCE(cu.max_swap_pct, 0) > ${swap_pct}
             THEN CONCAT('메모리 스왑 발생(max ', cu.max_swap_pct, '%) — RAM 고갈. 메모리 최적화 인스턴스로 상향 강력 권고.')
-          WHEN COALESCE(cs.spill_gb, 0) > 50
+          WHEN COALESCE(cs.spill_gb, 0) > ${spill_gb}
             THEN CONCAT('디스크 스필 ', cs.spill_gb, 'GB — 메모리 부족. 메모리 최적화 워커 또는 shuffle 파티션 증가 검토.')
-          WHEN cu.p95_mem_util > 85
+          WHEN cu.p95_mem_util > ${upsize_mem_p95}
             THEN CONCAT('메모리 P95 ', cu.p95_mem_util, '% 지속 포화 — 메모리 상향 또는 워커 추가 권고.')
           ELSE CONCAT('CPU P95 ', cu.p95_cpu_util, '%/메모리 P95 ', cu.p95_mem_util, '% 지속 포화 — 워커 추가 또는 큰 인스턴스 검토.')
         END)
-    WHEN cu.avg_cpu_wait > 10
+    WHEN cu.avg_cpu_wait > ${iowait_pct}
       THEN 'I/O 병목 감지. 스토리지 최적화 또는 EBS 성능 개선 권고.'
     WHEN cu.avg_cpu_util IS NULL OR cu.avg_mem_util IS NULL
       THEN '활용률(CPU/Mem) 데이터 없음 — sizing 판정 보류. node_timeline 수집 여부 확인.'
-    WHEN COALESCE(apt.window_run_count, 0) < 3
+    WHEN COALESCE(apt.window_run_count, 0) < ${min_runs}
       THEN '최근 90일 실행 3회 미만 — 표본 부족으로 sizing 판정 보류. 실행 누적 후 재평가.'
     ELSE '현재 구성 적절.'
   END AS recommendation_detail,
 
   ROUND(
     CASE
-      WHEN apt.window_run_count >= 3
+      WHEN apt.window_run_count >= ${min_runs}
        AND cu.median_cpu_util < 30 AND cu.median_mem_util < 40
        AND (cu.avg_stddev_cpu > 20 OR cu.peak_cpu_util > 80
         OR  cu.avg_stddev_mem > 20 OR cu.peak_mem_util > 80)
         THEN 0
-      WHEN apt.window_run_count >= 3
-       AND cu.avg_cpu_util < 20 AND cu.avg_mem_util < 30
+      WHEN apt.window_run_count >= ${min_runs}
+       AND cu.avg_cpu_util < ${downsize_cpu_avg} AND cu.avg_mem_util < ${downsize_mem_avg}
        AND cu.median_cpu_util < 15 AND cu.avg_stddev_cpu < 15
         THEN SUM(cjc.total_cost_usd) * 0.5
-      WHEN apt.window_run_count >= 3
-       AND cu.avg_cpu_util < 30 AND cu.avg_mem_util < 40
+      WHEN apt.window_run_count >= ${min_runs}
+       AND cu.avg_cpu_util < ${likely_cpu_avg} AND cu.avg_mem_util < ${likely_mem_avg}
        AND cu.median_cpu_util < 25 AND cu.median_mem_util < 35
         THEN SUM(cjc.total_cost_usd) * 0.3
       ELSE 0
@@ -870,88 +890,88 @@ SELECT
   jc.total_cost_usd,
 
   CASE
-    WHEN jc.run_count >= 3
+    WHEN jc.run_count >= ${min_runs}
      AND ju.median_cpu_util < 30
      AND ju.median_mem_util < 40
      AND (ju.avg_stddev_cpu > 20 OR ju.peak_cpu_util > 80
       OR  ju.avg_stddev_mem > 20 OR ju.peak_mem_util > 80)
       THEN 'BURST_PATTERN'
-    WHEN jc.run_count >= 3
-     AND ju.avg_cpu_util < 20
-     AND ju.avg_mem_util < 30
+    WHEN jc.run_count >= ${min_runs}
+     AND ju.avg_cpu_util < ${downsize_cpu_avg}
+     AND ju.avg_mem_util < ${downsize_mem_avg}
      AND ju.median_cpu_util < 15
      AND ju.avg_stddev_cpu < 15
       THEN 'DEFINITE_DOWNSIZE'
-    WHEN jc.run_count >= 3
-     AND ju.avg_cpu_util < 30 AND ju.avg_mem_util < 40
+    WHEN jc.run_count >= ${min_runs}
+     AND ju.avg_cpu_util < ${likely_cpu_avg} AND ju.avg_mem_util < ${likely_mem_avg}
      AND ju.median_cpu_util < 25 AND ju.median_mem_util < 35
       THEN 'LIKELY_DOWNSIZE'
-    WHEN jc.run_count >= 3
-     AND (ju.p95_mem_util > 85
-       OR COALESCE(ju.max_swap_pct, 0) > 0
-       OR COALESCE(js.spill_gb, 0) > 50
-       OR (ju.p95_cpu_util > 85 AND ju.p95_mem_util > 60))
+    WHEN jc.run_count >= ${min_runs}
+     AND (ju.p95_mem_util > ${upsize_mem_p95}
+       OR COALESCE(ju.max_swap_pct, 0) > ${swap_pct}
+       OR COALESCE(js.spill_gb, 0) > ${spill_gb}
+       OR (ju.p95_cpu_util > ${upsize_cpu_p95} AND ju.p95_mem_util > 60))
       THEN 'CONSIDER_UPSIZE'
-    WHEN ju.avg_cpu_wait > 10
+    WHEN ju.avg_cpu_wait > ${iowait_pct}
       THEN 'IO_BOTTLENECK'
     WHEN ju.avg_cpu_util IS NULL OR ju.avg_mem_util IS NULL
       THEN 'NO_UTIL_DATA'
-    WHEN COALESCE(jc.run_count, 0) < 3
+    WHEN COALESCE(jc.run_count, 0) < ${min_runs}
       THEN 'INSUFFICIENT_RUNS'
     ELSE 'APPROPRIATE'
   END AS sizing_recommendation,
 
   CASE
-    WHEN jc.run_count >= 3
+    WHEN jc.run_count >= ${min_runs}
      AND ju.median_cpu_util < 30 AND ju.median_mem_util < 40
      AND (ju.avg_stddev_cpu > 20 OR ju.peak_cpu_util > 80
       OR  ju.avg_stddev_mem > 20 OR ju.peak_mem_util > 80)
       THEN 'Burst 패턴 감지: median은 낮지만 순간 부하가 높아 현재 크기 유지 권고. Autoscaling 활용 검토.'
-    WHEN jc.run_count >= 3
-     AND ju.avg_cpu_util < 20 AND ju.avg_mem_util < 30
+    WHEN jc.run_count >= ${min_runs}
+     AND ju.avg_cpu_util < ${downsize_cpu_avg} AND ju.avg_mem_util < ${downsize_mem_avg}
      AND ju.median_cpu_util < 15 AND ju.avg_stddev_cpu < 15
       THEN '워커 수 50% 감소 또는 더 작은 인스턴스 타입으로 전환 강력 권고. median/P95/분산 모두 매우 낮음.'
-    WHEN jc.run_count >= 3
-     AND ju.avg_cpu_util < 30 AND ju.avg_mem_util < 40
+    WHEN jc.run_count >= ${min_runs}
+     AND ju.avg_cpu_util < ${likely_cpu_avg} AND ju.avg_mem_util < ${likely_mem_avg}
      AND ju.median_cpu_util < 25 AND ju.median_mem_util < 35
       THEN '워커 수 30% 감소 또는 인스턴스 타입 축소 검토. 평균·median 활용률이 지속적으로 낮음.'
-    WHEN jc.run_count >= 3
-     AND (ju.p95_mem_util > 85
-       OR COALESCE(ju.max_swap_pct, 0) > 0
-       OR COALESCE(js.spill_gb, 0) > 50
-       OR (ju.p95_cpu_util > 85 AND ju.p95_mem_util > 60))
+    WHEN jc.run_count >= ${min_runs}
+     AND (ju.p95_mem_util > ${upsize_mem_p95}
+       OR COALESCE(ju.max_swap_pct, 0) > ${swap_pct}
+       OR COALESCE(js.spill_gb, 0) > ${spill_gb}
+       OR (ju.p95_cpu_util > ${upsize_cpu_p95} AND ju.p95_mem_util > 60))
       THEN CONCAT('리소스 한계 근접. ',
         CASE
-          WHEN COALESCE(ju.max_swap_pct, 0) > 0
+          WHEN COALESCE(ju.max_swap_pct, 0) > ${swap_pct}
             THEN CONCAT('메모리 스왑 발생(max ', ju.max_swap_pct, '%) — RAM 고갈. 메모리 최적화 인스턴스로 상향 강력 권고.')
-          WHEN COALESCE(js.spill_gb, 0) > 50
+          WHEN COALESCE(js.spill_gb, 0) > ${spill_gb}
             THEN CONCAT('디스크 스필 ', js.spill_gb, 'GB — 메모리 부족. 메모리 최적화 워커 또는 shuffle 파티션 증가 검토.')
-          WHEN ju.p95_mem_util > 85
+          WHEN ju.p95_mem_util > ${upsize_mem_p95}
             THEN CONCAT('메모리 P95 ', ju.p95_mem_util, '% 지속 포화 — 메모리 상향 또는 워커 추가 권고.')
           ELSE CONCAT('CPU P95 ', ju.p95_cpu_util, '%/메모리 P95 ', ju.p95_mem_util, '% 지속 포화 — 워커 추가 또는 큰 인스턴스 검토.')
         END)
-    WHEN ju.avg_cpu_wait > 10
+    WHEN ju.avg_cpu_wait > ${iowait_pct}
       THEN 'I/O 병목 감지. 스토리지 최적화 또는 EBS 성능 개선 권고.'
     WHEN ju.avg_cpu_util IS NULL OR ju.avg_mem_util IS NULL
       THEN '활용률(CPU/Mem) 데이터 없음 — sizing 판정 보류. node_timeline 수집 여부 확인.'
-    WHEN COALESCE(jc.run_count, 0) < 3
+    WHEN COALESCE(jc.run_count, 0) < ${min_runs}
       THEN '최근 90일 실행 3회 미만 — 표본 부족으로 sizing 판정 보류. 실행 누적 후 재평가.'
     ELSE '현재 구성 적절.'
   END AS recommendation_detail,
 
   ROUND(
     CASE
-      WHEN jc.run_count >= 3
+      WHEN jc.run_count >= ${min_runs}
        AND ju.median_cpu_util < 30 AND ju.median_mem_util < 40
        AND (ju.avg_stddev_cpu > 20 OR ju.peak_cpu_util > 80
         OR  ju.avg_stddev_mem > 20 OR ju.peak_mem_util > 80)
         THEN 0
-      WHEN jc.run_count >= 3
-       AND ju.avg_cpu_util < 20 AND ju.avg_mem_util < 30
+      WHEN jc.run_count >= ${min_runs}
+       AND ju.avg_cpu_util < ${downsize_cpu_avg} AND ju.avg_mem_util < ${downsize_mem_avg}
        AND ju.median_cpu_util < 15 AND ju.avg_stddev_cpu < 15
         THEN jc.total_cost_usd * 0.5
-      WHEN jc.run_count >= 3
-       AND ju.avg_cpu_util < 30 AND ju.avg_mem_util < 40
+      WHEN jc.run_count >= ${min_runs}
+       AND ju.avg_cpu_util < ${likely_cpu_avg} AND ju.avg_mem_util < ${likely_mem_avg}
        AND ju.median_cpu_util < 25 AND ju.median_mem_util < 35
         THEN jc.total_cost_usd * 0.3
       ELSE 0
@@ -1066,6 +1086,8 @@ FROM job_compute_sizing_mv
 ;
 """
 SQL_SCRIPT = SQL_SCRIPT.replace("${workspace_id}", WORKSPACE_ID)
+for _k, _v in THRESHOLDS.items():
+    SQL_SCRIPT = SQL_SCRIPT.replace("${" + _k + "}", _v)
 
 # Strip full-line comments BEFORE splitting on ';' so a ';' inside a comment can't break the split.
 SQL_SCRIPT = "\n".join(l for l in SQL_SCRIPT.split("\n") if not l.strip().startswith("--"))

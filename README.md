@@ -104,12 +104,15 @@ databricks bundle deploy -t prod \
 ### 5. 분석 잡 실행 (serverless·SDP 미사용)
 
 ```bash
-# Right-Sizing 분석 테이블 생성/갱신 — classic 클러스터에서 system.* 직접 조회
-databricks bundle run daily_mv_refresh -t <target>
-
-# Disk-Spill 뷰/테이블 생성 + EXPANDED_DISK 이벤트 적재
-databricks bundle run spill_audit_refresh -t <target>
+# Right-Sizing 테이블 + Disk-Spill 뷰/이벤트를 한 잡(두 태스크)으로 생성/갱신
+# — classic 클러스터에서 system.* 직접 조회
+databricks bundle run workload_monitoring_refresh -t <target>
 ```
+
+> **Right-Sizing 임계치 조정:** sizing 판정 임계치(min_runs, downsize/likely CPU·Mem,
+> upsize P95, swap, spill, iowait)는 `workload_analysis_setup` 태스크의 **notebook 파라미터**로
+> 노출됩니다. 기본값은 `resources/jobs.yml`의 `base_parameters`에, 런타임 조정은 Jobs UI의
+> *Run now with different parameters* 로 합니다.
 
 > **Right-Sizing 전제조건:** `system.compute.clusters` 가 조회 가능해야 합니다. 일부 워크스페이스에서
 > 미프로비저닝(`UC_DEPENDENCY_DOES_NOT_EXIST`)일 수 있으니 사전 확인하세요. Disk-Spill 은
@@ -159,7 +162,7 @@ serverless · DLT · 시스템테이블 사본이 전혀 필요 없다. **분석
 2. 대시보드를 같은 타깃으로 재생성 (`p_catalog`/`p_schema` 기본값 + 카탈로그/스키마 글로벌 필터 + 드라이버 dataset 일괄 치환). 두 가지 방법:
    - **로컬 CLI** (배포 전): `python3 build_dashboard.py` — `databricks.yml` 의 `catalog`/`analytics_schema` 를 읽어 `.lvdash.json` 을 재생성. (`CATALOG=`/`SCHEMA=`/`OUT=` 로 오버라이드 가능)
    - **워크스페이스 노트북** (배포 후): `build_dashboard.py` 를 노트북으로 열어 `catalog`/`schema`/`dashboard_id`(+선택 `publish_warehouse_id`) 위젯 설정 후 실행 → 배포된 Lakeview 대시보드를 Lakeview API 로 직접 리타깃·게시.
-3. `databricks bundle deploy -t <target>` → `databricks bundle run spill_audit_refresh -t <target>`.
+3. `databricks bundle deploy -t <target>` → `databricks bundle run workload_monitoring_refresh -t <target>`.
 
 > **전제조건(고객 워크스페이스):** `query`/`compute`/`lakeflow` **system schema 활성화**,
 > Pro/Serverless **SQL Warehouse** 1개, 타깃 스키마에 `CREATE` 권한 + system tables `SELECT` 권한.
@@ -171,8 +174,9 @@ serverless · DLT · 시스템테이블 사본이 전혀 필요 없다. **분석
 > API 보존 윈도우를 넘어서는 **영속 이벤트 로그**를 쌓는다 — 초기에는 비어 있을 수 있으며 시간이
 > 지나며 채워진다. 모든 클러스터의 즉시 신호는 `cluster_disk_pressure_v`(disk-free floor) 가 커버한다.
 
-**`Spill Audit Refresh`** 잡(`resources/jobs.yml`)이 매일 실행된다 — `spill_audit_setup`
-노트북 한 개가 **classic single-node 클러스터**(serverless 미사용)에서 뷰/테이블 생성 후 이벤트를 적재.
+병합된 **`Workload Monitoring Refresh`** 잡(`resources/jobs.yml`)의 `spill_audit_setup` 태스크가
+매일 실행된다 — `spill_audit_setup` 노트북이 **classic single-node 클러스터**(serverless 미사용)에서
+뷰/테이블 생성 후 이벤트를 적재. (같은 잡의 `workload_analysis_setup` 태스크는 Right-Sizing 테이블 생성.)
 
 ## License
 MIT License

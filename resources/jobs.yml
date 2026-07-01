@@ -1,11 +1,17 @@
 resources:
   jobs:
-    # Right-Sizing analysis — serverless-free, reads system.* tables DIRECTLY
-    # (no SDP/DLT, no system-table copies). One notebook on a classic cluster builds
-    # the analysis TABLEs in ${var.catalog}.${var.analytics_schema}, parameterized by
-    # bundle variables. Requires system.compute.clusters provisioned in the workspace.
-    daily_mv_refresh:
-      name: "[${bundle.target}] Workload Analysis Refresh"
+    # Single Workload Monitoring job — serverless-free, reads system.* tables DIRECTLY
+    # (no SDP/DLT, no system-table copies). Merges the former daily_mv_refresh +
+    # spill_audit_refresh into ONE job with two tasks, each on the cluster it needs:
+    #   1. workload_analysis_setup — Right-Sizing TABLEs (autoscaling cluster).
+    #      Sizing thresholds are exposed as base_parameters and can be overridden
+    #      per-run from the Jobs UI or `databricks bundle run ... --params ...`.
+    #   2. spill_audit_setup — Disk-Spill VIEWs + EXPANDED_DISK events (single-node,
+    #      needs a live cluster for the Cluster Events API).
+    # Tasks are independent (run in parallel). Requires system.compute.clusters
+    # provisioned in the workspace. Deploys to any catalog.schema/workspace via variables.
+    workload_monitoring_refresh:
+      name: "[${bundle.target}] Workload Monitoring Refresh"
       schedule:
         quartz_cron_expression: "0 0 6 * * ?"
         timezone_id: "Asia/Seoul"
@@ -19,30 +25,6 @@ resources:
               max_workers: 4
             data_security_mode: SINGLE_USER
             runtime_engine: PHOTON
-      tasks:
-        - task_key: workload_analysis_setup
-          job_cluster_key: analysis_cluster
-          notebook_task:
-            notebook_path: ../workload_analysis/ingestion/workload_analysis_setup.py
-            base_parameters:
-              catalog: ${var.catalog}
-              schema: ${var.analytics_schema}
-              workspace_id: ${var.workspace_id}
-      permissions:
-        - level: CAN_MANAGE_RUN
-          group_name: users
-
-    # Disk-Spill audit — serverless-free, fully parameterized by bundle variables.
-    # One notebook on a classic single-node cluster (no serverless): (re)creates the
-    # query_spill_v / cluster_disk_pressure_v VIEWS + expanded_disk_events table in
-    # ${var.catalog}.${var.analytics_schema}, then ingests actual EXPANDED_DISK events.
-    # Deploys to ANY catalog.schema/workspace by changing the variables — no SQL editing.
-    spill_audit_refresh:
-      name: "[${bundle.target}] Spill Audit Refresh"
-      schedule:
-        quartz_cron_expression: "0 30 6 * * ?"
-        timezone_id: "Asia/Seoul"
-      job_clusters:
         - job_cluster_key: spill_setup_cluster
           new_cluster:
             spark_version: "16.4.x-scala2.12"
@@ -55,6 +37,25 @@ resources:
             custom_tags:
               ResourceClass: SingleNode
       tasks:
+        - task_key: workload_analysis_setup
+          job_cluster_key: analysis_cluster
+          notebook_task:
+            notebook_path: ../workload_analysis/ingestion/workload_analysis_setup.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.analytics_schema}
+              workspace_id: ${var.workspace_id}
+              # --- Tunable right-sizing thresholds (override per-run as needed) ---
+              min_runs: "3"            # min runs in 90d before judging sizing
+              downsize_cpu_avg: "20"   # DEFINITE_DOWNSIZE: avg CPU% below
+              downsize_mem_avg: "30"   # DEFINITE_DOWNSIZE: avg Mem% below
+              likely_cpu_avg: "30"     # LIKELY_DOWNSIZE: avg CPU% below
+              likely_mem_avg: "40"     # LIKELY_DOWNSIZE: avg Mem% below
+              upsize_mem_p95: "85"     # CONSIDER_UPSIZE: Mem P95% above
+              upsize_cpu_p95: "85"     # CONSIDER_UPSIZE: CPU P95% above
+              swap_pct: "0"            # CONSIDER_UPSIZE: max swap% above
+              spill_gb: "50"           # CONSIDER_UPSIZE: 90d disk spill GB above
+              iowait_pct: "10"         # IO_BOTTLENECK: avg CPU iowait% above
         - task_key: spill_audit_setup
           job_cluster_key: spill_setup_cluster
           notebook_task:
