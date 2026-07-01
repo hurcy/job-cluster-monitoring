@@ -251,6 +251,8 @@ ORDER BY e.event_time DESC
 
 import base64
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.service.dashboards import Dashboard
+from databricks.sdk.service.workspace import ExportFormat
 
 
 def _repo_root():
@@ -301,38 +303,28 @@ def target_profile(yml_path, target):
 
 
 def resolve_dashboard(w, display_name):
-    """Locate the deployed Lakeview dashboard by display name (DASHBOARD_ID env overrides).
-    Returns (dashboard_id, workspace_path, warehouse_id, etag)."""
+    """Locate the deployed Lakeview dashboard by display name (DASHBOARD_ID env overrides),
+    then GET the full object. `lakeview.list()` returns a summary view where `.path` is None,
+    which makes the Workspace Export API reject the read with "missing required field: path" —
+    so we always resolve the id first, then `get()` to obtain path / etag / warehouse_id."""
     did = os.environ.get("DASHBOARD_ID")
-    if did:
-        g = w.api_client.do("GET", f"/api/2.0/lakeview/dashboards/{did}")
-        return did, g.get("path"), g.get("warehouse_id"), g.get("etag")
-    token, match = None, None
-    while match is None:
-        q = {"page_size": 1000}
-        if token:
-            q["page_token"] = token
-        resp = w.api_client.do("GET", "/api/2.0/lakeview/dashboards", query=q)
-        for db in resp.get("dashboards", []):
-            if db.get("lifecycle_state") == "TRASHED":
+    if not did:
+        for db in w.lakeview.list():
+            if getattr(db.lifecycle_state, "value", db.lifecycle_state) == "TRASHED":
                 continue
-            if db.get("display_name") == display_name:
-                match = db
+            if db.display_name == display_name:
+                did = db.dashboard_id
                 break
-        token = resp.get("next_page_token")
-        if not token:
-            break
-    if match is None:
+    if not did:
         raise SystemExit(f"deployed dashboard not found by display_name={display_name!r} — "
                          f"deploy first (`databricks bundle deploy`) or set DASHBOARD_ID.")
-    return match["dashboard_id"], match.get("path"), match.get("warehouse_id"), match.get("etag")
+    return w.lakeview.get(did)
 
 
 def read_serialized(w, path):
     """Read the deployed dashboard definition via the Workspace EXPORT API (base64 -> dict)."""
-    resp = w.api_client.do("GET", "/api/2.0/workspace/export",
-                           query={"path": path, "format": "SOURCE"})
-    return json.loads(base64.b64decode(resp["content"]).decode("utf-8"))
+    resp = w.workspace.export(path, format=ExportFormat.SOURCE)
+    return json.loads(base64.b64decode(resp.content).decode("utf-8"))
 
 
 HERE = _repo_root()
@@ -347,18 +339,16 @@ PROFILE = os.environ.get("DATABRICKS_CONFIG_PROFILE") or target_profile(YML, TAR
 w = WorkspaceClient(profile=PROFILE) if PROFILE else WorkspaceClient()
 HOST = re.sub(r"^https?://", "", (os.environ.get("DATABRICKS_HOST") or w.config.host or "")).rstrip("/")
 
-dash_id, path, warehouse_id, etag = resolve_dashboard(w, DISPLAY_NAME)
-print(f"dashboard={DISPLAY_NAME!r}  id={dash_id}  path={path}")
+dash = resolve_dashboard(w, DISPLAY_NAME)
+print(f"dashboard={DISPLAY_NAME!r}  id={dash.dashboard_id}  path={dash.path}")
 print(f"target={CATALOG}.{SCHEMA}  host={HOST}  (profile={PROFILE or 'default'})")
 
 # 1) READ via Workspace Export API  ->  2) retarget  ->  3) WRITE via Lakeview PATCH API
-d = transform(read_serialized(w, path), CATALOG, SCHEMA, HOST)
+d = transform(read_serialized(w, dash.path), CATALOG, SCHEMA, HOST)
 
-body = {"serialized_dashboard": json.dumps(d, ensure_ascii=False)}
-if warehouse_id:
-    body["warehouse_id"] = warehouse_id
-if etag:
-    body["etag"] = etag
-w.api_client.do("PATCH", f"/api/2.0/lakeview/dashboards/{dash_id}", body=body)
-print(f"OK PATCHed dashboard {dash_id}: target={CATALOG}.{SCHEMA} "
+w.lakeview.update(dash.dashboard_id, Dashboard(
+    serialized_dashboard=json.dumps(d, ensure_ascii=False),
+    warehouse_id=dash.warehouse_id,
+    etag=dash.etag))
+print(f"OK PATCHed dashboard {dash.dashboard_id}: target={CATALOG}.{SCHEMA} "
       f"datasets={len(d['datasets'])} pages={len(d['pages'])}")
