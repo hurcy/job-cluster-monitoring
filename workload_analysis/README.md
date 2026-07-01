@@ -58,6 +58,29 @@ system.billing.usage + list_prices
 | Under-utilized | avg CPU < 30 % and avg memory < 40 % |
 | Balanced - Moderate Utilization | everything else |
 
+### Sizing Recommendation Signals (final tables)
+
+`sizing_recommendation` (+ human-readable `recommendation_detail`) is assigned per cluster
+(`all_purpose_cluster_sizing_mv`) or per job (`job_compute_sizing_mv`) by a **top-down CASE —
+the first matching rule wins**. Percentiles come from `node_timeline` (**P95** = sustained
+load, `peak` = true MAX); **spill** from `system.query.history` and **swap** from
+`node_timeline`. Rules marked *(gated)* require **≥ 3 runs in the last 90 days**.
+
+| Signal | Triggers when | Interpretation & action |
+|--------|---------------|-------------------------|
+| `BURST_PATTERN` *(gated)* | low median (CPU<30/mem<40) **but** high variance or peak >80 | Idle most of the time with occasional spikes. Keep the size and rely on **autoscaling** — do **not** downsize on averages. |
+| `DEFINITE_DOWNSIZE` *(gated)* | avg CPU<20 & mem<30, median CPU<15, low variance | Clearly over-provisioned. Cut workers ~50 % or pick a smaller instance. (`estimated_savings_usd` ≈ 50 % of cost.) |
+| `LIKELY_DOWNSIZE` *(gated)* | avg CPU<30 & mem<40, median CPU<25 & mem<35 | Consistently under-used. Cut workers ~30 % or shrink the instance. (savings ≈ 30 %.) |
+| `CONSIDER_UPSIZE` *(gated)* | mem P95>85, **swap>0**, **spill>50 GB**, or (CPU P95>85 **and** mem P95>60) | Sustained saturation or real memory pressure. Add workers / move to a memory-optimized instance. `recommendation_detail` names the actual cause (swap / spill / memory / CPU). |
+| `IO_BOTTLENECK` | avg CPU iowait >10 % | CPU sits idle waiting on disk — **not** a compute-sizing problem. Cross-check the Disk-Spill audit; prefer local-NVMe instances or faster storage (AWS EBS gp3 / Azure Managed Disk). |
+| `NO_UTIL_DATA` | CPU/mem utilization is NULL | No `node_timeline` samples — verdict withheld. Verify metrics collection. |
+| `INSUFFICIENT_RUNS` | < 3 runs in 90 days | Too few samples — verdict withheld until more runs accumulate. |
+| `APPROPRIATE` | none of the above | Current configuration looks right; no action. |
+
+> **Order matters.** A spiky workload is caught as `BURST_PATTERN` (checked first) and never
+> mislabeled `DEFINITE_DOWNSIZE`. `IO_BOTTLENECK` has **no** run-count gate, so it can fire on
+> low sample sizes — confirm the run count before acting.
+
 ## Disk-Spill Audit Objects (`ingestion/spill_audit_setup.py`)
 
 Audits local-disk spill and elastic-disk pressure for Job Compute / Serverless / SQL
