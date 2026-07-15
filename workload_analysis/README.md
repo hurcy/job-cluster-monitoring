@@ -93,7 +93,7 @@ window: **last 30 days**, workspace-scoped.
 |--------|------|--------|-------------|
 | `query_spill_v` | View | `system.query.history` | Per-statement spill (`spilled_local_bytes>0`) with compute-type label, job attribution, and `classify_cause` → `root_cause` / `root_cause_detail` tags. |
 | `cluster_disk_pressure_v` | View | `system.compute.node_timeline` | Cluster×day disk-free floor + swap %; `pressure_signal` flags elastic-disk auto-expansion. Catches non-SQL Spark jobs invisible to `query.history`. |
-| `expanded_disk_events` | Delta table | Cluster Events API (`/api/2.0/clusters/events`) | Durable log of actual `EXPANDED_DISK` / `DID_NOT_EXPAND_DISK` events — accumulates beyond the API's cluster-purge retention. |
+| `expanded_disk_events` | Delta table | Cluster Events API (`/api/2.0/clusters/events`) + `system.lakeflow.job_task_run_timeline` | Durable log of actual `EXPANDED_DISK` / `DID_NOT_EXPAND_DISK` events — accumulates beyond the API's cluster-purge retention. `job_id` / `job_run_id` are attributed at ingestion by matching the event's `cluster_id` + `event_time` to the job run active on that cluster (API doesn't return job attribution). |
 
 `root_cause` ∈ {`WIDE_SHUFFLE`, `NO_PRUNING`, `MV_REFRESH`, `MEMORY_BOUND`, `MODERATE`}.
 These feed the dashboard's **Disk Spill** and **Spill Detail & Expanded Disk** pages.

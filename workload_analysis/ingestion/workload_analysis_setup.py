@@ -440,7 +440,9 @@ JOIN (
 -- TEMPORARY VIEW들을 조인하여 최종 MV로 영속화한다.
 -- =================================================================
 
-CREATE OR REPLACE TABLE instance_workload_analysis_mv AS
+CREATE OR REPLACE TABLE instance_workload_analysis_mv
+COMMENT '인스턴스(노드) 수준 워크로드 프로파일링. 최근 90일 윈도우 동안 각 인스턴스의 CPU/메모리/네트워크 활용률에 클러스터 구성 스냅샷과 잡 실행 정보를 조인한 최종 테이블. workspace 스코프.'
+AS
 SELECT
   iu.workspace_id,
   iu.cluster_id,
@@ -543,7 +545,9 @@ GROUP BY workspace_id, job_id, run_id;
 -- instance_utilization은 downstream sizing MV에서 직접 집계한다.
 -- =================================================================
 
-CREATE OR REPLACE TABLE job_run_cost_analysis_mv AS
+CREATE OR REPLACE TABLE job_run_cost_analysis_mv
+COMMENT 'Job Run 단위 비용 분석. 클러스터×잡 실행별 DBU/USD 비용(billing.usage × list_prices)에 클러스터 구성·잡 메타·실행 시간을 조인. classic/serverless 구분. 최근 90일 윈도우.'
+AS
 SELECT
   cjc.workspace_id,
   cjc.cluster_id,
@@ -607,7 +611,9 @@ LEFT JOIN job_run_timeline_v jrt
 -- job_run_cost_analysis_mv에서 cluster_source IN ('UI', 'API') 행만 추출.
 -- =================================================================
 
-CREATE OR REPLACE TABLE all_purpose_cluster_sizing_mv AS
+CREATE OR REPLACE TABLE all_purpose_cluster_sizing_mv
+COMMENT 'All-Purpose(UI/API) 클러스터 단위 Right-Sizing 권고. 여러 잡이 공유하는 특성상 cluster_id 기준으로 활용률·비용을 집계하고 top-down CASE로 sizing_recommendation과 추정 절감액을 산출. 임계값은 잡 파라미터로 조정 가능.'
+AS
 WITH cluster_util AS (
   -- cluster 단위 utilization 집계 (instance_utilization_v에서 직접)
   SELECT
@@ -798,7 +804,9 @@ GROUP BY
 -- job_run_cost_analysis_mv에서 cluster_source = 'JOB' 행만 추출.
 -- =================================================================
 
-CREATE OR REPLACE TABLE job_compute_sizing_mv AS
+CREATE OR REPLACE TABLE job_compute_sizing_mv
+COMMENT 'Job Compute(cluster_source=JOB) 단위 Right-Sizing 권고. 잡↔클러스터 1:1 매핑이므로 job_id 기준 per-job 권고가 정확. ephemeral 클러스터라 cluster_id/cluster_name은 NULL.'
+AS
 WITH job_clusters AS (
   -- Job Compute는 run마다 ephemeral cluster가 생성된다. run/비용을 job_id 단위로
   -- 집계한다(분석 윈도우 90일 전체). run_count = 윈도우 내 실행 횟수.
@@ -997,7 +1005,9 @@ LEFT JOIN job_spill_v js
 -- Job Compute 행은 job_count를 NULL로 채운다.
 -- =================================================================
 
-CREATE OR REPLACE TABLE right_sizing_analysis_mv AS
+CREATE OR REPLACE TABLE right_sizing_analysis_mv
+COMMENT 'all_purpose_cluster_sizing_mv(per-cluster) + job_compute_sizing_mv(per-job)를 UNION한 하위호환 통합 테이블. 대시보드 right_sizing_targets 위젯용. compute_type로 두 소스를 구분하며, 해당없는 컬럼(All-Purpose의 job_id/job_name, Job Compute의 job_count)은 NULL.'
+AS
 -- All-Purpose: per-cluster, 잡 특정 컬럼은 NULL
 SELECT
   workspace_id,
@@ -1084,6 +1094,183 @@ SELECT
   estimated_savings_usd
 FROM job_compute_sizing_mv
 ;
+
+-- ===== Column comments (co-located; CTAS cannot inline column comments) =====
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN workspace_id COMMENT '워크스페이스 ID (분석 스코프)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN cluster_id COMMENT '클러스터 ID';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN cluster_name COMMENT '클러스터 이름 (system.compute.clusters SCD2 최신 스냅샷)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN cluster_source COMMENT '클러스터 생성 출처 (UI/API=All-Purpose, JOB/PIPELINE 등)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN owned_by COMMENT '클러스터 소유자 계정';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN instance_id COMMENT '인스턴스(노드) ID';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN driver COMMENT '드라이버 노드 여부 (TRUE=드라이버, FALSE=워커)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN node_type COMMENT '실측 노드 인스턴스 타입 (클라우드 인스턴스 타입명)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN driver_node_type COMMENT '구성상 드라이버 노드 타입';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN worker_node_type COMMENT '구성상 워커 노드 타입';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN configured_workers COMMENT '구성된 고정 워커 수 (fixed-size 클러스터, system.compute.clusters.worker_count)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN min_autoscale_workers COMMENT '오토스케일 최소 워커 수';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN max_autoscale_workers COMMENT '오토스케일 최대 워커 수';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN dbr_version COMMENT 'Databricks Runtime 버전';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN policy_id COMMENT '클러스터 정책 ID';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN tags COMMENT '클러스터 사용자 정의 태그 (MAP)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN instance_start_time COMMENT '인스턴스 관측 시작 시각 (90일 윈도우 내 MIN start_time)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN instance_end_time COMMENT '인스턴스 관측 종료 시각 (MAX end_time)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN avg_node_count COMMENT '분당 활성 워커 수 평균 (오토스케일 거동 분석)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN max_node_count COMMENT '분당 활성 워커 수 최대';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN stddev_node_count COMMENT '분당 활성 워커 수 표준편차';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN avg_cpu_util COMMENT 'CPU 활용률 평균 % (cpu_user + cpu_system)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN median_cpu_util COMMENT 'CPU 활용률 중앙값 % (P50)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN max_cpu_util COMMENT 'CPU 활용률 최대 %';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN stddev_cpu_util COMMENT 'CPU 활용률 표준편차 (변동성)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN avg_cpu_wait COMMENT 'CPU I/O 대기율 평균 % (iowait)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN max_cpu_wait COMMENT 'CPU I/O 대기율 최대 %';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN avg_mem_util COMMENT '메모리 사용률 평균 %';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN median_mem_util COMMENT '메모리 사용률 중앙값 % (P50)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN max_mem_util COMMENT '메모리 사용률 최대 %';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN stddev_mem_util COMMENT '메모리 사용률 표준편차 (변동성)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN avg_net_mb_rec_minute COMMENT '분당 네트워크 수신 평균 (MB)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN avg_net_mb_sent_minute COMMENT '분당 네트워크 송신 평균 (MB)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN workload_profile COMMENT '워크로드 프로파일 분류 (CPU Intensive / Memory Intensive / Balanced - High/Moderate Utilization / Under-utilized)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN job_id COMMENT '이 인스턴스에서 실행된 잡 ID';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN job_name COMMENT '잡 이름 (system.lakeflow.jobs)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN run_as COMMENT '잡 실행 주체 (run-as principal)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN creator_id COMMENT '잡 생성자 ID';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN job_run_id COMMENT '잡 실행(run) ID';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN run_start_time COMMENT '잡 실행 시작 시각 (period_start_time 별칭)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN period_start_time COMMENT '잡 실행 구간 시작 시각';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN period_end_time COMMENT '잡 실행 구간 종료 시각';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN job_run_duration_minutes COMMENT '잡 실행 소요 시간(분) = period_end - period_start';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN workspace_id COMMENT '워크스페이스 ID';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN cluster_id COMMENT '클러스터 ID';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN is_serverless COMMENT 'Serverless 컴퓨트 여부 (billing.usage.product_features.is_serverless)';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN cluster_name COMMENT '클러스터 이름';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN cluster_source COMMENT '클러스터 생성 출처 (UI/API/JOB 등)';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN owned_by COMMENT '클러스터 소유자 계정';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN worker_node_type COMMENT '구성상 워커 노드 타입';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN configured_workers COMMENT '구성된 고정 워커 수';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN min_autoscale_workers COMMENT '오토스케일 최소 워커 수';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN max_autoscale_workers COMMENT '오토스케일 최대 워커 수';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN dbr_version COMMENT 'Databricks Runtime 버전';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN policy_id COMMENT '클러스터 정책 ID';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN job_id COMMENT '잡 ID';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN job_name COMMENT '잡 이름';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN run_as COMMENT '잡 실행 주체 (run-as principal)';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN creator_id COMMENT '잡 생성자 ID';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN job_run_id COMMENT '잡 실행(run) ID';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN run_start_time COMMENT '실행 시작 시각 (task_run_stats 우선, 없으면 job_run_timeline 보완)';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN run_end_time COMMENT '실행 종료 시각';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN run_duration_minutes COMMENT '실행 소요 시간(분)';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN task_count COMMENT '실행에 포함된 distinct 태스크 수 (성공 run 기준)';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN total_dbus COMMENT '실행 소비 DBU 합계';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN total_cost_usd COMMENT '실행 비용 합계 (USD, list price 기준)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN workspace_id COMMENT '워크스페이스 ID';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN cluster_id COMMENT '클러스터 ID';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN cluster_name COMMENT '클러스터 이름';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN cluster_source COMMENT '클러스터 생성 출처 (UI 또는 API)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN owned_by COMMENT '클러스터 소유자 계정';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN worker_node_type COMMENT '구성상 워커 노드 타입';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN configured_workers COMMENT '구성된 고정 워커 수';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN min_autoscale_workers COMMENT '오토스케일 최소 워커 수';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN max_autoscale_workers COMMENT '오토스케일 최대 워커 수';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN dbr_version COMMENT 'Databricks Runtime 버전';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN policy_id COMMENT '클러스터 정책 ID';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN run_start_time COMMENT '최근 실행 시작일 (DATE)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN job_count COMMENT '이 클러스터를 공유한 distinct 잡 수';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN run_count COMMENT 'distinct 잡 실행(run) 수';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN avg_run_duration_minutes COMMENT '평균 실행 소요 시간(분)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN stddev_run_duration_minutes COMMENT '실행 소요 시간 표준편차(분)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN avg_cpu_util COMMENT '클러스터 인스턴스 CPU 활용률 평균 %';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN median_cpu_util COMMENT 'CPU 활용률 중앙값 % (P50)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN p95_cpu_util COMMENT 'CPU 활용률 P95 % (지속 부하 지표)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN peak_cpu_util COMMENT 'CPU 활용률 최대 % (순간 피크)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN avg_stddev_cpu COMMENT '인스턴스 CPU 표준편차 평균 (변동성)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN avg_mem_util COMMENT '메모리 사용률 평균 %';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN median_mem_util COMMENT '메모리 사용률 중앙값 % (P50)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN p95_mem_util COMMENT '메모리 사용률 P95 % (지속 부하 지표)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN peak_mem_util COMMENT '메모리 사용률 최대 % (순간 피크)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN avg_stddev_mem COMMENT '인스턴스 메모리 표준편차 평균 (변동성)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN avg_cpu_wait COMMENT 'CPU I/O 대기율 평균 % (iowait, IO_BOTTLENECK 신호)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN max_swap_pct COMMENT '메모리 스왑 최대 % (RAM 고갈 신호, CONSIDER_UPSIZE)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN spill_gb COMMENT '최근 90일 디스크 스필 합계 (GB, system.query.history)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN avg_instance_count COMMENT '관측된 distinct 인스턴스 수';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN total_dbus COMMENT '총 소비 DBU';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN total_cost_usd COMMENT '총 비용 (USD)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN sizing_recommendation COMMENT 'Right-Sizing 판정 (BURST_PATTERN / DEFINITE_DOWNSIZE / LIKELY_DOWNSIZE / CONSIDER_UPSIZE / IO_BOTTLENECK / NO_UTIL_DATA / INSUFFICIENT_RUNS / APPROPRIATE). top-down CASE 첫 매칭 우선.';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN recommendation_detail COMMENT '판정 근거 및 조치 권고 상세 (한국어, 스왑/스필/메모리/CPU 등 실제 원인 명시)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN estimated_savings_usd COMMENT '다운사이즈 시 추정 절감액 (USD, DEFINITE=50%/LIKELY=30%)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN workspace_id COMMENT '워크스페이스 ID';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN cluster_id COMMENT '클러스터 ID (Job Compute는 ephemeral이라 NULL)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN cluster_name COMMENT '클러스터 이름 (per-job 집계라 NULL)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN cluster_source COMMENT '클러스터 생성 출처 (JOB)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN job_id COMMENT '잡 ID';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN job_name COMMENT '잡 이름';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN owned_by COMMENT '클러스터 소유자 계정';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN worker_node_type COMMENT '구성상 워커 노드 타입';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN configured_workers COMMENT '구성된 고정 워커 수';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN min_autoscale_workers COMMENT '오토스케일 최소 워커 수';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN max_autoscale_workers COMMENT '오토스케일 최대 워커 수';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN dbr_version COMMENT 'Databricks Runtime 버전';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN policy_id COMMENT '클러스터 정책 ID';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN run_start_time COMMENT '최근 실행 시작일 (DATE)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN run_count COMMENT 'distinct 잡 실행(run) 수 (90일 윈도우)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN avg_run_duration_minutes COMMENT '평균 실행 소요 시간(분)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN stddev_run_duration_minutes COMMENT '실행 소요 시간 표준편차(분)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN avg_cpu_util COMMENT 'CPU 활용률 평균 %';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN median_cpu_util COMMENT 'CPU 활용률 중앙값 % (P50)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN p95_cpu_util COMMENT 'CPU 활용률 P95 % (지속 부하 지표)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN peak_cpu_util COMMENT 'CPU 활용률 최대 % (순간 피크)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN avg_stddev_cpu COMMENT '인스턴스 CPU 표준편차 평균 (변동성)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN avg_mem_util COMMENT '메모리 사용률 평균 %';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN median_mem_util COMMENT '메모리 사용률 중앙값 % (P50)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN p95_mem_util COMMENT '메모리 사용률 P95 % (지속 부하 지표)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN peak_mem_util COMMENT '메모리 사용률 최대 % (순간 피크)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN avg_stddev_mem COMMENT '인스턴스 메모리 표준편차 평균 (변동성)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN avg_cpu_wait COMMENT 'CPU I/O 대기율 평균 % (iowait, IO_BOTTLENECK 신호)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN max_swap_pct COMMENT '메모리 스왑 최대 % (RAM 고갈 신호, CONSIDER_UPSIZE)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN spill_gb COMMENT '최근 90일 디스크 스필 합계 (GB, job 단위, system.query.history)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN avg_instance_count COMMENT '관측된 distinct 인스턴스 수';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN total_dbus COMMENT '총 소비 DBU';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN total_cost_usd COMMENT '총 비용 (USD)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN sizing_recommendation COMMENT 'Right-Sizing 판정 (BURST_PATTERN / DEFINITE_DOWNSIZE / LIKELY_DOWNSIZE / CONSIDER_UPSIZE / IO_BOTTLENECK / NO_UTIL_DATA / INSUFFICIENT_RUNS / APPROPRIATE). top-down CASE 첫 매칭 우선.';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN recommendation_detail COMMENT '판정 근거 및 조치 권고 상세 (한국어, 스왑/스필/메모리/CPU 등 실제 원인 명시)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN estimated_savings_usd COMMENT '다운사이즈 시 추정 절감액 (USD, DEFINITE=50%/LIKELY=30%)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN workspace_id COMMENT '워크스페이스 ID';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN cluster_id COMMENT '클러스터 ID (Job Compute 행은 NULL)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN cluster_name COMMENT '클러스터 이름 (Job Compute 행은 NULL)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN cluster_source COMMENT '클러스터 생성 출처 (UI/API/JOB)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN compute_type COMMENT '컴퓨트 구분: All-Purpose 또는 Job Compute';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN job_id COMMENT '잡 ID (Job Compute 행만 값 존재, All-Purpose는 NULL)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN job_name COMMENT '잡 이름 (Job Compute 행만 값 존재)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN job_count COMMENT '클러스터를 공유한 distinct 잡 수 (All-Purpose 행만, Job Compute는 NULL)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN owned_by COMMENT '클러스터 소유자 계정';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN worker_node_type COMMENT '구성상 워커 노드 타입';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN configured_workers COMMENT '구성된 고정 워커 수';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN min_autoscale_workers COMMENT '오토스케일 최소 워커 수';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN max_autoscale_workers COMMENT '오토스케일 최대 워커 수';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN dbr_version COMMENT 'Databricks Runtime 버전';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN policy_id COMMENT '클러스터 정책 ID';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN run_start_time COMMENT '최근 실행 시작일 (DATE)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN run_count COMMENT 'distinct 잡 실행(run) 수';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN avg_run_duration_minutes COMMENT '평균 실행 소요 시간(분)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN stddev_run_duration_minutes COMMENT '실행 소요 시간 표준편차(분)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN avg_cpu_util COMMENT 'CPU 활용률 평균 %';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN median_cpu_util COMMENT 'CPU 활용률 중앙값 % (P50)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN p95_cpu_util COMMENT 'CPU 활용률 P95 %';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN peak_cpu_util COMMENT 'CPU 활용률 최대 % (순간 피크)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN avg_stddev_cpu COMMENT '인스턴스 CPU 표준편차 평균 (변동성)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN avg_cpu_wait COMMENT 'CPU I/O 대기율 평균 % (iowait)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN max_swap_pct COMMENT '메모리 스왑 최대 % (RAM 고갈 신호)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN spill_gb COMMENT '최근 90일 디스크 스필 합계 (GB)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN avg_mem_util COMMENT '메모리 사용률 평균 %';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN median_mem_util COMMENT '메모리 사용률 중앙값 % (P50)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN p95_mem_util COMMENT '메모리 사용률 P95 %';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN peak_mem_util COMMENT '메모리 사용률 최대 % (순간 피크)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN avg_stddev_mem COMMENT '인스턴스 메모리 표준편차 평균 (변동성)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN avg_instance_count COMMENT '관측된 distinct 인스턴스 수';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN total_dbus COMMENT '총 소비 DBU';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN total_cost_usd COMMENT '총 비용 (USD)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN sizing_recommendation COMMENT 'Right-Sizing 판정 (BURST_PATTERN / DEFINITE_DOWNSIZE / LIKELY_DOWNSIZE / CONSIDER_UPSIZE / IO_BOTTLENECK / NO_UTIL_DATA / INSUFFICIENT_RUNS / APPROPRIATE)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN recommendation_detail COMMENT '판정 근거 및 조치 권고 상세 (한국어)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN estimated_savings_usd COMMENT '다운사이즈 시 추정 절감액 (USD)';
 """
 SQL_SCRIPT = SQL_SCRIPT.replace("${workspace_id}", WORKSPACE_ID)
 for _k, _v in THRESHOLDS.items():
