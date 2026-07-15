@@ -13,18 +13,18 @@ sync:
 
 variables:
   catalog:
-    description: "Unity Catalog 카탈로그 이름"
+    description: "Unity Catalog catalog name"
     default: "hurcy"
   analytics_schema:
-    description: "분석 결과 출력 스키마 (Spill 뷰 + Right-Sizing 테이블)"
+    description: "Schema for analysis result output (Spill views + Right-Sizing tables)"
     default: "test"
   workspace_id:
-    description: "분석 대상 워크스페이스 ID"
+    description: "Target workspace ID for analysis"
     default: "984752964297111"
   warehouse_id:
-    description: "대시보드용 SQL Warehouse ID (dev=이름 lookup, 그 외 타겟은 ID 명시)"
+    description: "SQL Warehouse ID for the dashboard (dev=lookup by name, other targets specify ID)"
   node_type_id:
-    description: "잡 클러스터 노드 타입 (클라우드별 상이 — Azure 기본, AWS/GCP는 타겟에서 오버라이드)"
+    description: "Job cluster node type (varies by cloud — Azure default, AWS/GCP overridden in target)"
     default: "Standard_D4ds_v5"
 
 targets:
@@ -39,7 +39,7 @@ targets:
         lookup:
           warehouse: "Shared Endpoint"
 
-  # AWS e2-demo-field-eng — system.compute.clusters 접근 가능 (Right-Sizing 검증용)
+  # AWS e2-demo-field-eng — system.compute.clusters accessible (for Right-Sizing validation)
   e2demo:
     mode: development
     workspace:
@@ -49,5 +49,5 @@ targets:
       catalog: "main"
       analytics_schema: "cinyoung_hur_monitoring"
       workspace_id: "1444828305810485"
-      warehouse_id: "8baced1ff014912d"   # Shared endpoint (lookup 대신 명시)
-      node_type_id: "m5d.xlarge"         # AWS (4 vCPU/16GB, 로컬 NVMe SSD)
+      warehouse_id: "8baced1ff014912d"   # Shared endpoint (explicit instead of lookup)
+      node_type_id: "m5d.xlarge"         # AWS (4 vCPU/16GB, local NVMe SSD)

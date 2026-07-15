@@ -1,20 +1,20 @@
 -- =====================================================================
--- 전체 검증 실행: 모든 MV 집계 일관성 테스트
+-- Run all validations: aggregate consistency tests for all MVs
 -- =====================================================================
--- 이 파일은 개별 검증 파일의 핵심 테스트를 하나의 쿼리로 통합하여
--- 전체 PASS/FAIL을 한 번에 확인할 수 있도록 한다.
+-- This file consolidates the core tests from the individual validation files into
+-- a single query so the overall PASS/FAIL can be checked at once.
 --
--- 실행 결과: test_name | result 형태로 모든 테스트 결과 출력
--- 모든 행이 PASS이면 집계 일관성 검증 통과.
+-- Output: all test results in the form test_name | result
+-- If every row is PASS, the aggregate consistency validation passes.
 --
 -- Parameters:
---   ${source_catalog}   - 파이프라인 target catalog (예: hurcy)
---   ${analytics_schema} - 파이프라인 target schema  (예: test)
+--   ${source_catalog}   - pipeline target catalog (e.g. hurcy)
+--   ${analytics_schema} - pipeline target schema  (e.g. test)
 -- =====================================================================
 
 WITH
 -- ---------------------------------------------------------------
--- 기초 집계
+-- Base aggregations
 -- ---------------------------------------------------------------
 job_run_all AS (
   SELECT
@@ -78,10 +78,10 @@ iwp_mv AS (
 )
 
 -- ---------------------------------------------------------------
--- 테스트 결과
+-- Test results
 -- ---------------------------------------------------------------
 -- T1: attributable classic split (ap_src + jc_src == ap + jc)
--- NULL cluster_source 행은 billing에서 cluster_id가 없어 sizing 대상에서 제외됨
+-- NULL cluster_source rows have no cluster_id in billing, so they are excluded from sizing
 SELECT 'T01_classic_dbu_cost_split' AS test_name,
   CASE WHEN ABS((jr.ap_src_dbus + jr.jc_src_dbus) - (ap.total_dbus + jc.total_dbus)) < 1.0
         AND ABS((jr.ap_src_cost + jr.jc_src_cost) - (ap.total_cost_usd + jc.total_cost_usd)) < 1.0
@@ -136,7 +136,7 @@ FROM job_run_all jr
 UNION ALL
 
 -- T6: serverless exclusion (total - sizing - serverless - null_source ≈ 0)
--- null_source: billing에서 cluster_id가 NULL인 classic 행 (sizing 대상 아님)
+-- null_source: classic rows with NULL cluster_id in billing (not a sizing target)
 SELECT 'T06_serverless_excluded_from_sizing',
   CASE WHEN ABS(jr.total_dbus - (ap.total_dbus + jc.total_dbus) - jr.serverless_dbus - jr.null_source_dbus) < 1.0
     THEN 'PASS' ELSE 'FAIL' END,

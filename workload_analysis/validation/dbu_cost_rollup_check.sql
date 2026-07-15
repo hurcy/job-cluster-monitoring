@@ -1,26 +1,26 @@
 -- =====================================================================
--- 검증: DBU/비용 롤업 일관성
+-- Validation: DBU/cost rollup consistency
 -- =====================================================================
--- job_run_cost_analysis_mv (is_serverless=false)의
--- total_dbus, total_cost_usd 합산이
--- all_purpose_cluster_sizing_mv + job_compute_sizing_mv 합산과 일치하는지 확인.
+-- Verify that the sum of total_dbus, total_cost_usd for
+-- job_run_cost_analysis_mv (is_serverless=false) matches the sum of
+-- all_purpose_cluster_sizing_mv + job_compute_sizing_mv.
 --
--- 추가로 cluster_source 기준 분리가 누락 없이 이루어졌는지 검증한다.
+-- Additionally, verify that the split by cluster_source is complete with no omissions.
 --
 -- Parameters:
---   ${source_catalog}   - 파이프라인 target catalog
---   ${analytics_schema} - 파이프라인 target schema
+--   ${source_catalog}   - pipeline target catalog
+--   ${analytics_schema} - pipeline target schema
 -- =====================================================================
 
 
 -- =============================================================
--- T1: job_run (classic) 합산 == all_purpose + job_compute 합산
+-- T1: job_run (classic) sum == all_purpose + job_compute sum
 -- =============================================================
--- job_run_cost_analysis_mv에서 is_serverless=false인 행의
--- total_dbus, total_cost_usd 합을 기준으로,
--- all_purpose (UI/API) + job_compute (JOB) 합이 동일해야 한다.
+-- Using the sum of total_dbus, total_cost_usd for rows with
+-- is_serverless=false in job_run_cost_analysis_mv as the baseline,
+-- the sum of all_purpose (UI/API) + job_compute (JOB) must be equal.
 --
--- 허용 오차: ROUND 누적 오차를 감안하여 dbus < 1.0, cost < 1.0
+-- Tolerance: accounting for accumulated ROUND error, dbus < 1.0, cost < 1.0
 -- =============================================================
 WITH job_run_classic AS (
   SELECT
@@ -59,11 +59,11 @@ FROM job_run_classic jrc, ap_jc_combined ac;
 
 
 -- =============================================================
--- T2: cluster_source 분포 확인
+-- T2: check cluster_source distribution
 -- =============================================================
--- job_run_cost_analysis_mv (is_serverless=false)에서
--- cluster_source가 'UI', 'API', 'JOB' 외 값이 있으면
--- sizing MV에서 누락될 수 있다.
+-- In job_run_cost_analysis_mv (is_serverless=false),
+-- if cluster_source has values other than 'UI', 'API', 'JOB',
+-- they may be omitted from the sizing MV.
 -- =============================================================
 SELECT
   'T2_uncovered_cluster_source'  AS test_name,
@@ -82,10 +82,10 @@ ORDER BY total_cost_usd DESC;
 
 
 -- =============================================================
--- T3: all_purpose 소스 필터 정확성
+-- T3: all_purpose source filter accuracy
 -- =============================================================
--- all_purpose_cluster_sizing_mv의 total_dbus가
--- job_run에서 cluster_source IN ('UI','API')인 행의 합과 일치하는지 확인.
+-- Verify that total_dbus of all_purpose_cluster_sizing_mv matches
+-- the sum of rows with cluster_source IN ('UI','API') in job_run.
 -- =============================================================
 WITH job_run_ap AS (
   SELECT
@@ -119,10 +119,10 @@ FROM job_run_ap jr, ap_mv mv;
 
 
 -- =============================================================
--- T4: job_compute 소스 필터 정확성
+-- T4: job_compute source filter accuracy
 -- =============================================================
--- job_compute_sizing_mv의 total_dbus가
--- job_run에서 cluster_source = 'JOB'인 행의 합과 일치하는지 확인.
+-- Verify that total_dbus of job_compute_sizing_mv matches
+-- the sum of rows with cluster_source = 'JOB' in job_run.
 -- =============================================================
 WITH job_run_jc AS (
   SELECT

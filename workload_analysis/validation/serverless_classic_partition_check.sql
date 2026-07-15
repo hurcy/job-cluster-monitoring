@@ -1,18 +1,18 @@
 -- =====================================================================
--- 검증: Serverless / Classic 파티션 일관성
+-- Validation: Serverless / Classic partition consistency
 -- =====================================================================
--- job_run_cost_analysis_mv 전체 합산이
--- serverless + classic 분리 합산과 동일한지 확인.
--- sizing MV에 serverless 행이 포함되지 않았는지 검증.
+-- Verify that the total sum of job_run_cost_analysis_mv equals
+-- the split sum of serverless + classic.
+-- Verify that no serverless rows are included in the sizing MV.
 --
 -- Parameters:
---   ${source_catalog}   - 파이프라인 target catalog
---   ${analytics_schema} - 파이프라인 target schema
+--   ${source_catalog}   - pipeline target catalog
+--   ${analytics_schema} - pipeline target schema
 -- =====================================================================
 
 
 -- =============================================================
--- T5: 전체 = serverless + classic 파티션 일관성
+-- T5: total = serverless + classic partition consistency
 -- =============================================================
 WITH total AS (
   SELECT
@@ -52,10 +52,10 @@ FROM total t, partitioned p;
 
 
 -- =============================================================
--- T6: Serverless 비용이 sizing MV에 포함되지 않았는지 확인
+-- T6: Verify that serverless cost is not included in the sizing MV
 -- =============================================================
--- all_purpose + job_compute + serverless = job_run 전체
--- 즉, job_run 전체 - (ap + jc) = serverless 비용과 동일해야 한다.
+-- all_purpose + job_compute + serverless = total job_run
+-- i.e., total job_run - (ap + jc) must equal the serverless cost.
 -- =============================================================
 WITH job_run_all AS (
   SELECT
