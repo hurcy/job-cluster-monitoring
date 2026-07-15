@@ -1,19 +1,19 @@
 -- =====================================================================
--- 검증: right_sizing_analysis_mv UNION 일관성
+-- Validation: right_sizing_analysis_mv UNION consistency
 -- =====================================================================
--- right_sizing_analysis_mv는 all_purpose_cluster_sizing_mv +
--- job_compute_sizing_mv의 UNION ALL이므로,
--- total_dbus, total_cost_usd 합산이 정확히 일치해야 한다.
--- 행 수도 동일해야 한다.
+-- Since right_sizing_analysis_mv is a UNION ALL of all_purpose_cluster_sizing_mv +
+-- job_compute_sizing_mv,
+-- the sum of total_dbus, total_cost_usd must match exactly.
+-- The row count must also be equal.
 --
 -- Parameters:
---   ${source_catalog}   - 파이프라인 target catalog
---   ${analytics_schema} - 파이프라인 target schema
+--   ${source_catalog}   - pipeline target catalog
+--   ${analytics_schema} - pipeline target schema
 -- =====================================================================
 
 
 -- =============================================================
--- T7: right_sizing_targets 비용 합산 == ap + jc 비용 합산
+-- T7: right_sizing_targets cost sum == ap + jc cost sum
 -- =============================================================
 WITH rst AS (
   SELECT
@@ -53,7 +53,7 @@ FROM rst, ap_jc;
 
 
 -- =============================================================
--- T8: right_sizing_targets 행 수 == ap 행 수 + jc 행 수
+-- T8: right_sizing_targets row count == ap row count + jc row count
 -- =============================================================
 WITH rst_count AS (
   SELECT COUNT(*) AS cnt FROM ${source_catalog}.${analytics_schema}.right_sizing_analysis_mv
@@ -78,10 +78,10 @@ FROM rst_count rst, ap_count ap, jc_count jc;
 
 
 -- =============================================================
--- T9: right_sizing_targets compute_type별 비용 == 소스 MV 비용
+-- T9: right_sizing_targets cost by compute_type == source MV cost
 -- =============================================================
--- compute_type='All-Purpose' 행의 합 == all_purpose_cluster_sizing_mv 합
--- compute_type='Job Compute' 행의 합 == job_compute_sizing_mv 합
+-- sum of compute_type='All-Purpose' rows == all_purpose_cluster_sizing_mv sum
+-- sum of compute_type='Job Compute' rows == job_compute_sizing_mv sum
 -- =============================================================
 WITH rst_by_type AS (
   SELECT

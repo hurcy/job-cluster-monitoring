@@ -1,26 +1,27 @@
 -- =====================================================================
--- 비용 일관성 검증: right_sizing_analysis_mv 분리 전후 비교
+-- Cost consistency validation: comparison before/after right_sizing_analysis_mv split
 -- =====================================================================
--- all_purpose_cluster_sizing_mv (MV 12) + job_compute_sizing_mv (MV 13)의
--- total_dbus, total_cost_usd 합산이 분리 전 소스와 일치하는지 확인한다.
+-- Verify that the sum of total_dbus, total_cost_usd of
+-- all_purpose_cluster_sizing_mv (MV 12) + job_compute_sizing_mv (MV 13)
+-- matches the source before the split.
 --
--- 검증 원칙:
---   job_run_cost_analysis_mv (is_serverless=false) 합산
---   == MV12 합산 + MV13 합산
+-- Validation principle:
+--   job_run_cost_analysis_mv (is_serverless=false) sum
+--   == MV12 sum + MV13 sum
 --
--- 실행 방법:
---   파이프라인 배포 후 아래 쿼리를 순서대로 실행하여 result = 'PASS' 확인
+-- How to run:
+--   After deploying the pipeline, run the queries below in order and confirm result = 'PASS'
 --
 -- Parameters:
---   ${source_catalog}   - 파이프라인 target catalog (예: hurcy)
---   ${analytics_schema} - 파이프라인 target schema  (예: test)
+--   ${source_catalog}   - pipeline target catalog (e.g. hurcy)
+--   ${analytics_schema} - pipeline target schema  (e.g. test)
 -- =====================================================================
 
 
 -- =============================================================
--- 검증 1: 소스 기준값 — job_run_cost_analysis_mv (classic compute)
+-- Check 1: source baseline — job_run_cost_analysis_mv (classic compute)
 -- =============================================================
--- 분리 전후 공통 기준값. is_serverless=false 전체 합산.
+-- Common baseline before/after the split. Total sum of is_serverless=false.
 -- =============================================================
 SELECT
   'source_baseline'             AS check_name,
@@ -31,9 +32,9 @@ WHERE is_serverless = false;
 
 
 -- =============================================================
--- 검증 2: 분리 후 합산 — MV12 (All-Purpose) + MV13 (Job Compute)
+-- Check 2: sum after split — MV12 (All-Purpose) + MV13 (Job Compute)
 -- =============================================================
--- cluster_source 기준 필터로 분리되었으므로 합산 시 전체를 커버해야 한다.
+-- Since it is split by cluster_source filter, the sum must cover the whole.
 -- =============================================================
 SELECT
   'after_split'                 AS check_name,
@@ -49,10 +50,10 @@ FROM (
 
 
 -- =============================================================
--- 검증 3: 차이 확인 — PASS / FAIL 판정
+-- Check 3: verify difference — PASS / FAIL determination
 -- =============================================================
--- cost 차이가 0.01 미만이면 PASS.
--- FAIL 시 cluster_source가 'UI', 'API', 'JOB' 외 값이 있는지 확인할 것.
+-- PASS if the cost difference is less than 0.01.
+-- On FAIL, check whether cluster_source has values other than 'UI', 'API', 'JOB'.
 -- =============================================================
 WITH baseline AS (
   SELECT
@@ -88,9 +89,9 @@ FROM baseline, split_total;
 
 
 -- =============================================================
--- (참고) 커버되지 않는 cluster_source 확인
+-- (Reference) Check uncovered cluster_source
 -- =============================================================
--- 'UI', 'API', 'JOB' 외 값이 존재하면 분리 MVs에서 누락된 비용이 있을 수 있다.
+-- If values other than 'UI', 'API', 'JOB' exist, there may be cost omitted from the split MVs.
 -- =============================================================
 SELECT
   cluster_source,

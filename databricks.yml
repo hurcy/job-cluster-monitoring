@@ -4,20 +4,28 @@ bundle:
 include:
   - resources/*.yml
 
+# Genie Code Skills live in skills/ and are published to /Workspace/.assistant/skills
+# out-of-band via `make skills` (databricks workspace import-dir) — DAB has no skill
+# resource type and cannot target that path. Keep them out of the bundle file sync.
+sync:
+  exclude:
+    - "skills/**"
+
 variables:
   catalog:
-    description: "Unity Catalog 카탈로그 이름"
+    description: "Unity Catalog catalog name"
     default: "hurcy"
   analytics_schema:
-    description: "분석 결과 출력 스키마 (Spill 뷰 + Right-Sizing 테이블)"
+    description: "Schema for analysis result output (Spill views + Right-Sizing tables)"
     default: "test"
   workspace_id:
-    description: "분석 대상 워크스페이스 ID"
+    description: "Target workspace ID for analysis"
     default: "984752964297111"
   warehouse_id:
-    description: "대시보드용 SQL Warehouse ID"
-    lookup:
-      warehouse: "Shared Endpoint"
+    description: "SQL Warehouse ID for the dashboard (dev=lookup by name, other targets specify ID)"
+  node_type_id:
+    description: "Job cluster node type (varies by cloud — Azure default, AWS/GCP overridden in target)"
+    default: "Standard_D4ds_v5"
 
 targets:
   dev:
@@ -26,3 +34,20 @@ targets:
     workspace:
       host: https://adb-984752964297111.11.azuredatabricks.net
       profile: DEFAULT
+    variables:
+      warehouse_id:
+        lookup:
+          warehouse: "Shared Endpoint"
+
+  # AWS e2-demo-field-eng — system.compute.clusters accessible (for Right-Sizing validation)
+  e2demo:
+    mode: development
+    workspace:
+      host: https://e2-demo-field-eng.cloud.databricks.com
+      profile: e2-demo-west
+    variables:
+      catalog: "main"
+      analytics_schema: "cinyoung_hur_monitoring"
+      workspace_id: "1444828305810485"
+      warehouse_id: "8baced1ff014912d"   # Shared endpoint (explicit instead of lookup)
+      node_type_id: "m5d.xlarge"         # AWS (4 vCPU/16GB, local NVMe SSD)

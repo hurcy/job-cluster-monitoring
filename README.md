@@ -1,41 +1,89 @@
 # Job Cluster Monitoring
 
-Job & Cluster 워크로드 모니터링(**Right-Sizing** + **Disk-Spill**) 대시보드를 Databricks Asset Bundles(DAB)로 배포합니다.
-**Serverless·SDP(Lakeflow Declarative Pipeline) 미사용** — 모든 분석은 classic 클러스터 노트북이 `system.*` 테이블을 **직접** 조회해 생성하며, 시스템 테이블 사본이 필요 없습니다.
+Deploys the Job & Cluster workload monitoring (**Right-Sizing** + **Disk-Spill**) dashboard via Databricks Asset Bundles (DAB).
+**No Serverless / SDP (Lakeflow Declarative Pipeline)** — every analysis is produced by classic-cluster notebooks that query the `system.*` tables **directly**, so no copy of the system tables is required.
 
 ## Preview
 ![alt text](https://github.com/hurcy/job-cluster-monitoring/blob/main/dashboard_example.png)
 
-## 프로젝트 구조
+## Genie Code Skills (co-pilot)
+
+In addition to the dashboard, this repo ships its analysis queries and lifecycle as **Databricks Genie Code Skills**.
+Registered as skills in [Genie Code](https://docs.databricks.com/aws/en/genie-code/skills) (the workspace-native AI assistant),
+they let workspace users and admins optimize compute conversationally —
+e.g., *"Which clusters are oversized and how much can I save?"*, *"What is spilling, and why?"*, *"What were this month's top-cost jobs?"*.
+
+The 6 skills under `skills/` (`SKILL.md` = the same open Agent Skills standard as Claude Code):
+
+| Skill | Role |
+|------|------|
+| `job-cluster-monitoring` | Umbrella router — table catalog, shared output contract, question routing |
+| `job-monitoring-setup` | Pipeline deploy / refresh / UC comment re-seeding (the only writer) |
+| `compute-right-sizing` | Over/under-provisioning diagnosis + estimated savings (`right_sizing_analysis_mv`, etc.) |
+| `disk-spill-diagnosis` | Spill root cause / disk pressure / EXPANDED_DISK (`query_spill_v`, etc.) |
+| `compute-cost-analysis` | DBU→USD, classic vs serverless, top spenders (`job_run_cost_analysis_mv`) |
+| `monitoring-data-quality` | Aggregation reconciliation checks (T01–T17) |
+
+- **End-to-end usage scenario**: [`SCENARIO.md`](SCENARIO.md) — a measurement-based walkthrough in which an admin runs
+  setup → cost → right-sizing → spill → validation in natural language via Genie Code.
+- **Analysis skills are read-only (SELECT)** — they only query the tables created by the setup skill.
+- Recommendations follow the **Problem / Action / $ Savings / Effort / Risk / Docs** contract, meshing with
+  the evidence tier of [`fe-cost-optimization-report`](https://github.com/databricks-field-eng/vibe).
+  (That project mirrors the internal `centralized_system_tables`; this one reads the customer workspace's live `system.*` — the two are complementary.)
+
+### Publish
+
+```bash
+# Deploy the pipeline (job + dashboard) AND publish skills to /Workspace/.assistant/skills
+make deploy                                   # = bundle deploy + workspace import-dir skills
+
+# Publish only the skills (to a personal folder)
+make skills SKILLS_ROOT=/Users/<you>/.assistant/skills
+```
+
+> DAB has no skill resource type, so `bundle deploy` cannot place files at the `.assistant/skills` path
+> (sync only covers the bundle root). Hence `databricks.yml` sets `sync.exclude: ["skills/**"]`,
+> skills are published via `databricks workspace import-dir`, and `make deploy` ties the two together.
+> After editing a skill in Genie Code, start a **new conversation thread** for the changes to take effect.
+
+## Project structure
 
 ```
 job-cluster-monitoring/
-├── databricks.yml                  # DAB 번들 설정 (변수, 타겟 정의)
-├── build_dashboard.py              # 배포된 대시보드 리타깃 (export 로 읽기 → Lakeview PATCH 로 쓰기)
+├── Makefile                        # make deploy (bundle + publish skills) / make refresh
+├── databricks.yml                  # DAB bundle config (variables, targets, skills/ sync excluded)
+├── build_dashboard.py              # Retarget the deployed dashboard (read via export → write via Lakeview PATCH)
+├── skills/                         # Genie Code Skills (→ /Workspace/.assistant/skills)
+│   ├── job-cluster-monitoring/     # Umbrella router + shared output contract
+│   ├── job-monitoring-setup/       # Deploy / refresh / comment re-seeding (the only writer)
+│   ├── compute-right-sizing/       # Over/under-provisioning diagnosis + savings (queries/ + references/)
+│   ├── disk-spill-diagnosis/       # spill / disk pressure / EXPANDED_DISK (queries/ + references/)
+│   ├── compute-cost-analysis/      # DBU→USD, classic vs serverless, top spenders (queries/)
+│   └── monitoring-data-quality/    # reconciliation checks (T01–T17)
 ├── resources/
-│   ├── jobs.yml                    # 잡 리소스 (classic 클러스터 노트북 — serverless·SDP 미사용)
-│   └── dashboard.yml               # AI/BI 대시보드 리소스
+│   ├── jobs.yml                    # Job resources (setup: 2 tasks; comments inlined in CREATE)
+│   └── dashboard.yml               # AI/BI dashboard resource
 ├── workload_analysis/
-│   ├── ingestion/                  # 셋업 노트북 (classic 클러스터, system.* 직접 조회)
-│   │   ├── workload_analysis_setup.py     # Right-Sizing 분석 테이블 생성 (system.* 직접)
-│   │   └── spill_audit_setup.py           # Disk-Spill 뷰/테이블 + EXPANDED_DISK 이벤트 적재
-│   ├── explorations/               # 탐색용 노트북
-│   └── validation/                 # 데이터 품질 검증 쿼리
+│   ├── ingestion/                  # Setup notebooks (classic cluster, direct system.* queries)
+│   │   ├── workload_analysis_setup.py     # Create Right-Sizing tables (comments inlined/co-located)
+│   │   └── spill_audit_setup.py           # Disk-Spill views/tables + EXPANDED_DISK (comments inlined)
+│   ├── explorations/               # Exploration notebooks
+│   └── validation/                 # Data-quality validation queries
 └── dashboard/
-    └── *.lvdash.json               # 대시보드 정의 (Right-Sizing + Disk Spill 페이지)
+    └── *.lvdash.json               # Dashboard definition (Right-Sizing + Disk Spill pages)
 ```
 
-## 사전 요구사항
+## Prerequisites
 
 - [Databricks CLI](https://docs.databricks.com/dev-tools/cli/install.html) v0.218+
-- 대상 워크스페이스에 대한 인증 프로파일 설정 (`~/.databrickscfg`)
-- Unity Catalog 및 시스템 테이블 접근 권한
+- An authentication profile configured for the target workspace (`~/.databrickscfg`)
+- Access to Unity Catalog and the system tables
 
-## 배포 방법
+## Deployment
 
-### 1. 인증 프로파일 설정
+### 1. Configure the authentication profile
 
-`~/.databrickscfg` 에 대상 워크스페이스 프로파일을 추가합니다.
+Add the target workspace profile to `~/.databrickscfg`.
 
 ```ini
 [DEFAULT]
@@ -47,20 +95,20 @@ host  = https://adb-xxxxxxxxxxxx.xx.azuredatabricks.net
 token = dapi...
 ```
 
-### 2. 번들 변수 확인
+### 2. Review the bundle variables
 
-`databricks.yml`에 정의된 변수를 대상 워크스페이스에 맞게 조정합니다.
+Adjust the variables defined in `databricks.yml` to match the target workspace.
 
-| 변수 | 설명 | 예시 |
+| Variable | Description | Example |
 |------|------|------|
-| `catalog` | Unity Catalog 카탈로그 이름 (분석 결과 출력) | `hurcy` |
-| `analytics_schema` | 분석 결과 출력 스키마 (Spill 뷰 + Right-Sizing 테이블) | `test` |
-| `workspace_id` | 분석 대상 워크스페이스 ID | `984752964297111` |
-| `warehouse_id` | 대시보드용 SQL Warehouse | `Shared Endpoint` (lookup) |
+| `catalog` | Unity Catalog catalog name (where analysis results are written) | `hurcy` |
+| `analytics_schema` | Output schema for analysis results (Spill views + Right-Sizing tables) | `test` |
+| `workspace_id` | ID of the workspace being analyzed | `984752964297111` |
+| `warehouse_id` | SQL Warehouse for the dashboard | `Shared Endpoint` (lookup) |
 
-### 3. 새 타겟 추가 (다른 워크스페이스 배포)
+### 3. Add a new target (deploy to another workspace)
 
-`databricks.yml`의 `targets` 섹션에 새 타겟을 추가합니다.
+Add a new target to the `targets` section of `databricks.yml`.
 
 ```yaml
 targets:
@@ -71,7 +119,7 @@ targets:
       host: https://adb-984752964297111.11.azuredatabricks.net
       profile: DEFAULT
 
-  # 다른 워크스페이스 예시
+  # Example: another workspace
   prod:
     workspace:
       host: https://adb-xxxxxxxxxxxx.xx.azuredatabricks.net
@@ -83,110 +131,111 @@ targets:
       warehouse_id: "xxxxxxxxxxxxxxxx"
 ```
 
-### 4. 배포 실행
+### 4. Run the deployment
 
 ```bash
-# 기본 타겟(dev) 배포
+# Deploy the default target (dev)
 databricks bundle deploy
 
-# 특정 타겟 배포
+# Deploy a specific target
 databricks bundle deploy -t prod
 
-# 변수 오버라이드
+# Override variables
 databricks bundle deploy -t prod \
   --var="catalog:other_catalog" \
   --var="workspace_id:123456789"
 ```
 
-> **다른 catalog.schema 로 배포 시** — `analytics_schema`/`catalog` 변수를 바꿔 배포한 뒤,
-> **배포된 대시보드를** `python3 build_dashboard.py` 로 리타깃하세요 (아래 6번 참조).
+> **When deploying to a different catalog.schema** — after deploying with the `analytics_schema`/`catalog` variables changed,
+> retarget **the deployed dashboard** with `python3 build_dashboard.py` (see step 6 below).
 
-### 5. 분석 잡 실행 (serverless·SDP 미사용)
+### 5. Run the analysis job (no Serverless / SDP)
 
 ```bash
-# Right-Sizing 테이블 + Disk-Spill 뷰/이벤트를 한 잡(두 태스크)으로 생성/갱신
-# — classic 클러스터에서 system.* 직접 조회
+# Create/refresh the Right-Sizing tables + Disk-Spill views/events in one job (two tasks)
+# — classic cluster queries system.* directly
 databricks bundle run workload_monitoring_refresh -t <target>
 ```
 
-> **Right-Sizing 임계치 조정:** sizing 판정 임계치(min_runs, downsize/likely CPU·Mem,
-> upsize P95, swap, spill, iowait)는 `workload_analysis_setup` 태스크의 **notebook 파라미터**로
-> 노출됩니다. 기본값은 `resources/jobs.yml`의 `base_parameters`에, 런타임 조정은 Jobs UI의
-> *Run now with different parameters* 로 합니다.
+> **Tuning the Right-Sizing thresholds:** the sizing-decision thresholds (min_runs, downsize/likely CPU·Mem,
+> upsize P95, swap, spill, iowait) are exposed as **notebook parameters** of the `workload_analysis_setup` task.
+> Defaults live in `base_parameters` in `resources/jobs.yml`; adjust them at runtime via the Jobs UI
+> *Run now with different parameters*.
 
-> **Right-Sizing 전제조건:** `system.compute.clusters` 가 조회 가능해야 합니다. 일부 워크스페이스에서
-> 미프로비저닝(`UC_DEPENDENCY_DOES_NOT_EXIST`)일 수 있으니 사전 확인하세요. Disk-Spill 은
-> `system.query.history` / `system.compute.node_timeline` 만 사용해 해당 제약이 없습니다.
+> **Right-Sizing prerequisite:** `system.compute.clusters` must be queryable. On some workspaces it may be
+> unprovisioned (`UC_DEPENDENCY_DOES_NOT_EXIST`), so verify beforehand. Disk-Spill uses only
+> `system.query.history` / `system.compute.node_timeline` and has no such constraint.
 
-### 6. 대시보드 리타깃 (`build_dashboard.py`)
+### 6. Retarget the dashboard (`build_dashboard.py`)
 
-대시보드는 Global Filters를 통해 **카탈로그**, **스키마**, **조회 기간**을 런타임에 변경할 수 있습니다.
-Disk-Spill 페이지 추가와 catalog/schema 리타깃은 **배포된 대시보드를 직접 수정**하는 방식입니다 —
-`databricks bundle deploy` **후에** 실행하세요:
+Through Global Filters, the dashboard lets you change the **catalog**, **schema**, and **lookback window** at runtime.
+Adding the Disk-Spill page and retargeting catalog/schema work by **directly modifying the deployed dashboard** —
+run this **after** `databricks bundle deploy`:
 
 ```bash
-# 배포된 대시보드를 Workspace Export API 로 읽고 → 리타깃 → Lakeview PATCH API 로 다시 씀
+# Read the deployed dashboard via the Workspace Export API → retarget → write it back via the Lakeview PATCH API
 python3 build_dashboard.py
 ```
 
-- catalog/schema 는 `databricks.yml` 에서 읽습니다 (`CATALOG=`/`SCHEMA=` 로 오버라이드).
-- 대상 대시보드는 표시 이름 `[<target>] Job Cluster Monitoring Dashboard` 로 찾습니다
-  (`DASHBOARD_ID`/`DASHBOARD_NAME`/`TARGET` 로 오버라이드, 인증은 SDK 표준 — bundle 타깃 profile).
-- **로컬 `.lvdash.json` 을 수정하지 않습니다.** (idempotent — 여러 번 실행해도 안전)
+- catalog/schema are read from `databricks.yml` (override with `CATALOG=`/`SCHEMA=`).
+- The target dashboard is located by the display name `[<target>] Job Cluster Monitoring Dashboard`
+  (override with `DASHBOARD_ID`/`DASHBOARD_NAME`/`TARGET`; authentication is SDK-standard — the bundle target profile).
+- **It does not modify the local `.lvdash.json`.** (idempotent — safe to run multiple times)
 
-### 7. 배포 상태 확인 / 삭제
+### 7. Check deployment status / destroy
 
 ```bash
-# 배포 상태 확인
+# Check deployment status
 databricks bundle validate -t prod
 
-# 리소스 삭제
+# Destroy resources
 databricks bundle destroy -t prod
 ```
 
-## Disk-Spill / Expanded-Disk 감사
+## Disk-Spill / Expanded-Disk audit
 
-Job Compute · Serverless · SQL Warehouse 에서 실행된 코드/쿼리의 **로컬 디스크 spill** 과
-**elastic-disk 확장 압력**을 분석하여 대시보드의 **Disk Spill** / **Spill Detail & Expanded Disk**
-페이지로 노출한다. (출처: `spill_audit_notebook.py`)
+Analyzes the **local disk spill** and **elastic-disk expansion pressure** of code/queries run on
+Job Compute, Serverless, and SQL Warehouses, and surfaces them on the dashboard's **Disk Spill** /
+**Spill Detail & Expanded Disk** pages. (Source: `spill_audit_notebook.py`)
 
-**Serverless 를 쓸 수 없는 Pro SQL Warehouse 환경**에 맞춰, spill 분석 계층은 DLT MV 가 아닌
-**일반 SQL VIEW** 로 구현한다 — Pro warehouse 가 system table 을 직접 조회하므로
-serverless · DLT · 시스템테이블 사본이 전혀 필요 없다. **분석 윈도우는 최근 30일.**
+Tailored to **Pro SQL Warehouse environments that cannot use Serverless**, the spill analysis layer is implemented
+as **plain SQL VIEWs** rather than DLT MVs — because a Pro warehouse queries the system tables directly,
+no serverless, DLT, or copy of the system tables is needed at all. **The analysis window is the last 30 days.**
 
-| 신호 | 소스 (직접 조회) | 산출물 | 런타임 |
+| Signal | Source (direct query) | Output | Runtime |
 |------|------|--------|------|
-| Method A — 문장 단위 spill | `system.query.history` | `query_spill_v` (compute type · job 귀속 · 근본원인 태그) | Pro SQL Warehouse |
-| Method B — 클러스터 disk-free floor / swap | `system.compute.node_timeline` | `cluster_disk_pressure_v` (확장 신호, non-SQL 잡 포함) | Pro SQL Warehouse |
-| 실제 확장 이벤트 | Cluster Events API (`/api/2.0/clusters/events`) | `expanded_disk_events` Delta 테이블 (durable log) | Classic single-node 클러스터 |
+| Method A — statement-level spill | `system.query.history` | `query_spill_v` (compute type · job attribution · root-cause tag) | Pro SQL Warehouse |
+| Method B — cluster disk-free floor / swap | `system.compute.node_timeline` | `cluster_disk_pressure_v` (expansion signal, incl. non-SQL jobs) | Pro SQL Warehouse |
+| Actual expansion events | Cluster Events API (`/api/2.0/clusters/events`) | `expanded_disk_events` Delta table (durable log) | Classic single-node cluster |
 
-**근본원인 태그** (`query_spill_v.root_cause`): `WIDE_SHUFFLE` · `NO_PRUNING` ·
-`MV_REFRESH` · `MEMORY_BOUND` · `MODERATE` — 각각 처방을 `root_cause_detail` 에 담는다.
+**Root-cause tags** (`query_spill_v.root_cause`): `WIDE_SHUFFLE` · `NO_PRUNING` ·
+`MV_REFRESH` · `MEMORY_BOUND` · `MODERATE` — each carries its prescription in `root_cause_detail`.
 
-### 변수-구동 배포 (임의 카탈로그.스키마 / 워크스페이스)
+### Variable-driven deployment (arbitrary catalog.schema / workspace)
 
-뷰·테이블·이벤트 적재는 `spill_audit_setup.py` 노트북 한 개가 **번들 변수**로 전부 파라미터화해
-생성한다(`CREATE VIEW` 가 파라미터 마커를 못 받아 Python f-string 으로 주입). **per-customer SQL
-수정 불필요.** 고객사 배포 절차:
+The views, tables, and event ingestion are all created by a single `spill_audit_setup.py` notebook, fully
+parameterized by **bundle variables** (since `CREATE VIEW` cannot take parameter markers, they are injected via
+Python f-strings). **No per-customer SQL changes required.** Per-customer deployment steps:
 
-1. `databricks.yml` 변수 설정: `catalog`, `analytics_schema`, `workspace_id`, `warehouse_id`.
-2. `databricks bundle deploy -t <target>` — 대시보드·뷰·테이블·잡 배포 (대시보드는 로컬 `.lvdash.json` 기준으로 생성).
-3. `python3 build_dashboard.py` — **배포된** 대시보드를 Workspace Export API 로 읽어 Disk-Spill 페이지 추가 + `p_catalog`/`p_schema` 기본값·글로벌 필터·드라이버 dataset 을 catalog/schema 로 일괄 치환한 뒤 **Lakeview PATCH API 로 반영**. (`CATALOG=`/`SCHEMA=`/`DASHBOARD_ID`/`TARGET` 오버라이드 가능, idempotent)
-4. `databricks bundle run workload_monitoring_refresh -t <target>` — 분석 잡 실행.
+1. Set the `databricks.yml` variables: `catalog`, `analytics_schema`, `workspace_id`, `warehouse_id`.
+2. `databricks bundle deploy -t <target>` — deploy the dashboard, views, tables, and job (the dashboard is created from the local `.lvdash.json`).
+3. `python3 build_dashboard.py` — read the **deployed** dashboard via the Workspace Export API, add the Disk-Spill page, bulk-replace the `p_catalog`/`p_schema` defaults, global filters, and driver dataset with your catalog/schema, then **apply via the Lakeview PATCH API**. (overridable with `CATALOG=`/`SCHEMA=`/`DASHBOARD_ID`/`TARGET`; idempotent)
+4. `databricks bundle run workload_monitoring_refresh -t <target>` — run the analysis job.
 
-> **전제조건(고객 워크스페이스):** `query`/`compute`/`lakeflow` **system schema 활성화**,
-> Pro/Serverless **SQL Warehouse** 1개, 타깃 스키마에 `CREATE` 권한 + system tables `SELECT` 권한.
-> system tables 는 멀티-워크스페이스이므로 `workspace_id` 필터 필수.
+> **Prerequisites (customer workspace):** the `query`/`compute`/`lakeflow` **system schemas enabled**,
+> one Pro/Serverless **SQL Warehouse**, plus `CREATE` on the target schema and `SELECT` on the system tables.
+> Because the system tables are multi-workspace, a `workspace_id` filter is mandatory.
 
-> **EXPANDED_DISK 이벤트 주의:** 실제 확장 이벤트는 system table 이 아닌 Cluster Events API 에만
-> 있고(=SQL 로 호출 불가, 노트북+컴퓨트 필요), **종료된 job 클러스터는 ~30일 후 purge** 되어
-> 조회 불가. Serverless 는 이벤트가 없다. 그래서 노트북이 **매일** 이벤트를 Delta 로 스냅샷해
-> API 보존 윈도우를 넘어서는 **영속 이벤트 로그**를 쌓는다 — 초기에는 비어 있을 수 있으며 시간이
-> 지나며 채워진다. 모든 클러스터의 즉시 신호는 `cluster_disk_pressure_v`(disk-free floor) 가 커버한다.
+> **Note on EXPANDED_DISK events:** actual expansion events live only in the Cluster Events API, not in a system
+> table (= not callable from SQL; a notebook + compute is required), and **terminated job clusters are purged after
+> ~30 days**, after which they cannot be queried. Serverless has no such events. That is why the notebook snapshots
+> the events to Delta **daily**, building a **durable event log** that outlives the API retention window — it may be
+> empty initially and fills in over time. The immediate signal for every cluster is covered by
+> `cluster_disk_pressure_v` (disk-free floor).
 
-병합된 **`Workload Monitoring Refresh`** 잡(`resources/jobs.yml`)의 `spill_audit_setup` 태스크가
-매일 실행된다 — `spill_audit_setup` 노트북이 **classic single-node 클러스터**(serverless 미사용)에서
-뷰/테이블 생성 후 이벤트를 적재. (같은 잡의 `workload_analysis_setup` 태스크는 Right-Sizing 테이블 생성.)
+The `spill_audit_setup` task of the merged **`Workload Monitoring Refresh`** job (`resources/jobs.yml`) runs
+daily — the `spill_audit_setup` notebook creates the views/tables and then ingests the events on a **classic
+single-node cluster** (no serverless). (The same job's `workload_analysis_setup` task creates the Right-Sizing tables.)
 
 ## License
 MIT License

@@ -654,7 +654,7 @@
       "queryLines": [
         "SELECT\n",
         "  e.event_date AS run_start_time,\n",
-        "  e.event_time, e.cluster_id, n.cluster_name, e.event_type, e.instance_id,\n",
+        "  e.event_time, e.cluster_id, n.cluster_name, e.job_id, e.job_run_id, e.event_type, e.instance_id,\n",
         "  e.previous_disk_size, e.disk_size, e.free_space_bytes, e.cause\n",
         "FROM IDENTIFIER(:p_catalog || '.' || :p_schema || '.expanded_disk_events') e\n",
         "LEFT JOIN IDENTIFIER(:p_catalog || '.' || :p_schema || '.cluster_names') n ON e.cluster_id = n.cluster_id\n",
@@ -3340,6 +3340,14 @@
                       "expression": "`cluster_name`"
                     },
                     {
+                      "name": "job_id",
+                      "expression": "`job_id`"
+                    },
+                    {
+                      "name": "job_run_id",
+                      "expression": "`job_run_id`"
+                    },
+                    {
                       "name": "event_type",
                       "expression": "`event_type`"
                     },
@@ -3392,6 +3400,14 @@
                   {
                     "fieldName": "cluster_name",
                     "displayName": "Cluster Name"
+                  },
+                  {
+                    "fieldName": "job_id",
+                    "displayName": "Job ID"
+                  },
+                  {
+                    "fieldName": "job_run_id",
+                    "displayName": "Job Run ID"
                   },
                   {
                     "fieldName": "event_type",

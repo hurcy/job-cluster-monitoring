@@ -1,28 +1,28 @@
 -- =====================================================================
--- 검증: Duration (실행 시간) 롤업 일관성
+-- Validation: Duration (run time) rollup consistency
 -- =====================================================================
--- job_run_cost_analysis_mv의 run_duration_minutes 합산이
--- sizing MV의 avg_run_duration_minutes * run_count 합산과
--- 근사적으로 일치하는지 확인.
+-- Verify that the sum of run_duration_minutes in job_run_cost_analysis_mv
+-- approximately matches the sum of avg_run_duration_minutes * run_count
+-- in the sizing MV.
 --
--- 주의: sizing MV는 ROUND(AVG(...), 2)로 집계하므로
--- 역산 시 ROUND 오차가 누적된다. 허용 오차를 넓게 설정한다.
+-- Note: the sizing MV aggregates with ROUND(AVG(...), 2), so
+-- ROUND error accumulates when reversing the calculation. Set a wide tolerance.
 --
 -- Parameters:
---   ${source_catalog}   - 파이프라인 target catalog
---   ${analytics_schema} - 파이프라인 target schema
+--   ${source_catalog}   - pipeline target catalog
+--   ${analytics_schema} - pipeline target schema
 -- =====================================================================
 
 
 -- =============================================================
--- T10: All-Purpose duration 일관성
+-- T10: All-Purpose duration consistency
 -- =============================================================
--- job_run에서 cluster_source IN ('UI','API')인 행의
+-- For rows with cluster_source IN ('UI','API') in job_run,
 -- SUM(run_duration_minutes) ≈
--- all_purpose에서 SUM(avg_run_duration_minutes * run_count)
+-- SUM(avg_run_duration_minutes * run_count) in all_purpose
 --
--- 허용 오차: 소스 합산의 5% 또는 10분 중 큰 값
--- (ROUND(AVG, 2) 역산 누적 오차 감안)
+-- Tolerance: the greater of 5% of the source sum or 10 minutes
+-- (accounting for accumulated ROUND(AVG, 2) reversal error)
 -- =============================================================
 WITH job_run_ap AS (
   SELECT
@@ -60,11 +60,11 @@ FROM job_run_ap jr, ap_mv mv;
 
 
 -- =============================================================
--- T11: Job Compute duration 일관성
+-- T11: Job Compute duration consistency
 -- =============================================================
--- job_run에서 cluster_source = 'JOB'인 행의
+-- For rows with cluster_source = 'JOB' in job_run,
 -- SUM(run_duration_minutes) ≈
--- job_compute에서 SUM(avg_run_duration_minutes * run_count)
+-- SUM(avg_run_duration_minutes * run_count) in job_compute
 -- =============================================================
 WITH job_run_jc AS (
   SELECT
@@ -102,11 +102,11 @@ FROM job_run_jc jr, jc_mv mv;
 
 
 -- =============================================================
--- T12: right_sizing_targets duration 일관성
+-- T12: right_sizing_targets duration consistency
 -- =============================================================
--- right_sizing_analysis_mv의 SUM(avg_run_duration_minutes * run_count)가
--- all_purpose + job_compute 합산과 동일해야 한다.
--- (UNION ALL이므로 정확히 일치해야 한다)
+-- SUM(avg_run_duration_minutes * run_count) of right_sizing_analysis_mv
+-- must equal the sum of all_purpose + job_compute.
+-- (must match exactly since it is a UNION ALL)
 -- =============================================================
 WITH rst AS (
   SELECT

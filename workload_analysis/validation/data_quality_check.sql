@@ -1,17 +1,17 @@
 -- =====================================================================
--- 검증: 데이터 품질 (NULL / 음수 / 빈 데이터)
+-- Validation: data quality (NULL / negative / empty data)
 -- =====================================================================
--- 모든 MV에서 total_dbus, total_cost_usd, duration 관련 컬럼에
--- 음수 값이 없고, 핵심 키 컬럼에 NULL이 없는지 확인.
+-- Verify that in all MVs there are no negative values in the total_dbus,
+-- total_cost_usd, and duration-related columns, and no NULLs in key columns.
 --
 -- Parameters:
---   ${source_catalog}   - 파이프라인 target catalog
---   ${analytics_schema} - 파이프라인 target schema
+--   ${source_catalog}   - pipeline target catalog
+--   ${analytics_schema} - pipeline target schema
 -- =====================================================================
 
 
 -- =============================================================
--- T13: job_run_cost_analysis_mv 음수 비용 검사
+-- T13: job_run_cost_analysis_mv negative cost check
 -- =============================================================
 SELECT
   'T13_job_run_negative_cost' AS test_name,
@@ -27,7 +27,7 @@ FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv;
 
 
 -- =============================================================
--- T14: all_purpose_cluster_sizing_mv 음수 비용 검사
+-- T14: all_purpose_cluster_sizing_mv negative cost check
 -- =============================================================
 SELECT
   'T14_all_purpose_negative_cost' AS test_name,
@@ -43,7 +43,7 @@ FROM ${source_catalog}.${analytics_schema}.all_purpose_cluster_sizing_mv;
 
 
 -- =============================================================
--- T15: job_compute_sizing_mv 음수 비용 검사
+-- T15: job_compute_sizing_mv negative cost check
 -- =============================================================
 SELECT
   'T15_job_compute_negative_cost' AS test_name,
@@ -59,9 +59,9 @@ FROM ${source_catalog}.${analytics_schema}.job_compute_sizing_mv;
 
 
 -- =============================================================
--- T16: job_run_cost_analysis_mv NULL 키 컬럼 검사
+-- T16: job_run_cost_analysis_mv NULL key column check
 -- =============================================================
--- classic compute 행만 검사 (serverless는 cluster_id가 NULL일 수 있음)
+-- Check only classic compute rows (serverless may have NULL cluster_id)
 SELECT
   'T16_job_run_null_keys' AS test_name,
   SUM(CASE WHEN workspace_id IS NULL THEN 1 ELSE 0 END) AS null_workspace,
@@ -85,7 +85,7 @@ WHERE is_serverless = false;
 
 
 -- =============================================================
--- T17: 음수 duration 검사 (모든 MV)
+-- T17: negative duration check (all MVs)
 -- =============================================================
 SELECT
   'T17_negative_duration' AS test_name,
@@ -108,7 +108,7 @@ SELECT
 
 
 -- =============================================================
--- T18: 비어있지 않은 MV 확인
+-- T18: check MVs are non-empty
 -- =============================================================
 SELECT
   'T18_non_empty_mvs' AS test_name,

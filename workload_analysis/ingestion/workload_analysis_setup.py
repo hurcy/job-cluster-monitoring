@@ -83,7 +83,7 @@ GROUP BY cluster_id, node_type, DATE_TRUNC('minute', start_time);
 -- =================================================================
 -- 2. node_count_stats_v  [TEMPORARY VIEW]
 -- =================================================================
--- 클러스터별 노드 수 통계 (평균/최대/표준편차).
+-- Node count statistics per cluster (avg / max / stddev).
 -- =================================================================
 
 CREATE OR REPLACE TEMPORARY VIEW node_count_stats_v
@@ -101,8 +101,8 @@ GROUP BY cluster_id, node_type;
 -- =================================================================
 -- 3. instance_utilization_v  [TEMPORARY VIEW]
 -- =================================================================
--- 인스턴스별 리소스 활용률 + 워크로드 프로파일 분류.
--- median, stddev 포함 (sizing 판정용).
+-- Per-instance resource utilization + workload profile classification.
+-- Includes median, stddev (for sizing judgment).
 -- =================================================================
 
 CREATE OR REPLACE TEMPORARY VIEW instance_utilization_v
@@ -154,7 +154,7 @@ FROM (
     AND start_time >= DATE_SUB(CURRENT_DATE(), 90)
     AND start_time <  CURRENT_DATE()
 )
--- 멀티노드: 워커(driver=FALSE)만. 싱글노드(워커 없음): 드라이버 포함 → util 측정.
+-- Multi-node: workers only (driver=FALSE). Single-node (no worker): include driver -> measure util.
 WHERE driver = FALSE OR has_worker = 0
 GROUP BY workspace_id, cluster_id, driver, node_type, instance_id;
 
@@ -162,12 +162,12 @@ GROUP BY workspace_id, cluster_id, driver, node_type, instance_id;
 -- =================================================================
 -- 3b. cluster_spill_v / job_spill_v  [TEMPORARY VIEW]
 -- =================================================================
--- 실제 디스크 스필(spilled_local_bytes)을 system.query.history에서 집계.
--- 메모리 부족(→ GC 압박 / OOM)의 직접 증거. system 테이블에 executor GC time
--- 컬럼이 없으므로, 스필 + 스왑(node_timeline.mem_swap_percent)을 GC/메모리
--- 압박의 대체 신호로 사용한다.
--- 주의: query.history는 SQL/DataFrame 실행 경로 위주라 순수 RDD 스필은 누락될
--- 수 있음 → 항상 존재하는 node_timeline 스왑 신호와 함께 판정한다.
+-- Aggregates actual disk spill (spilled_local_bytes) from system.query.history.
+-- Direct evidence of memory pressure (-> GC pressure / OOM). Because system tables have no
+-- executor GC time column, spill + swap (node_timeline.mem_swap_percent) are used as
+-- proxy signals for GC / memory pressure.
+-- Note: query.history mostly covers the SQL/DataFrame execution path, so pure RDD spill may be
+-- missing -> judge together with the always-present node_timeline swap signal.
 -- =================================================================
 
 CREATE OR REPLACE TEMPORARY VIEW cluster_spill_v AS
@@ -204,7 +204,7 @@ GROUP BY workspace_id, job_id;
 -- =================================================================
 -- 4. cluster_config_latest_v  [TEMPORARY VIEW]
 -- =================================================================
--- 클러스터 구성 정보 (SCD2 최신 버전).
+-- Cluster configuration info (SCD2 latest version).
 -- =================================================================
 
 CREATE OR REPLACE TEMPORARY VIEW cluster_config_latest_v
@@ -224,8 +224,8 @@ WHERE _rn = 1;
 -- =================================================================
 -- 5. exploded_task_runs_v  [TEMPORARY VIEW]
 -- =================================================================
--- 태스크 실행 → 클러스터 매핑.
--- compute_ids 배열을 EXPLODE하여 태스크-클러스터 관계를 1:N으로 풀어낸다.
+-- Task run -> cluster mapping.
+-- EXPLODE the compute_ids array to unfold the task-to-cluster relationship as 1:N.
 -- =================================================================
 
 CREATE OR REPLACE TEMPORARY VIEW exploded_task_runs_v
@@ -251,8 +251,8 @@ WHERE tr.workspace_id = '${workspace_id}'
 -- =================================================================
 -- 6. task_run_stats_v  [TEMPORARY VIEW]
 -- =================================================================
--- Job Run 단위 집계 (클러스터별 × 잡 실행별).
--- 성공한 태스크가 하나라도 있는 잡 실행만 필터링한다.
+-- Aggregation at the Job Run level (per cluster x per job run).
+-- Keeps only job runs that have at least one succeeded task.
 -- =================================================================
 
 CREATE OR REPLACE TEMPORARY VIEW task_run_stats_v
@@ -270,7 +270,7 @@ SELECT
 FROM exploded_task_runs_v
 GROUP BY workspace_id, cluster_id, job_id, job_run_id
 HAVING ARRAY_CONTAINS(COLLECT_SET(result_state), 'SUCCEEDED')
-   -- 온전히 성공한 run만: SUCCEEDED 태스크가 있고 실패 태스크가 하나도 없음.
+   -- Fully successful runs only: has a SUCCEEDED task and not a single failed task.
    AND SIZE(ARRAY_INTERSECT(
          COLLECT_SET(result_state),
          ARRAY('FAILED','ERROR','TIMEDOUT','UPSTREAM_FAILED',
@@ -281,7 +281,7 @@ HAVING ARRAY_CONTAINS(COLLECT_SET(result_state), 'SUCCEEDED')
 -- =================================================================
 -- 6b. job_run_cluster_map_v  [TEMPORARY VIEW]
 -- =================================================================
--- Job의 Task가 실행된 cluster_id 매핑 (시간 범위 포함).
+-- Mapping of the cluster_id where a job task ran (includes time range).
 -- =================================================================
 
 CREATE OR REPLACE TEMPORARY VIEW job_run_cluster_map_v
@@ -300,7 +300,7 @@ GROUP BY workspace_id, cluster_id, job_id, job_run_id;
 -- =================================================================
 -- 7. job_config_latest_v  [TEMPORARY VIEW]
 -- =================================================================
--- 잡 메타데이터 (SCD2 최신 버전, 삭제되지 않은 잡만).
+-- Job metadata (SCD2 latest version, non-deleted jobs only).
 -- =================================================================
 
 CREATE OR REPLACE TEMPORARY VIEW job_config_latest_v
@@ -321,9 +321,9 @@ WHERE _rn = 1;
 -- =================================================================
 -- 8a. ap_cluster_cost_v  [TEMPORARY VIEW]
 -- =================================================================
--- All-Purpose 클러스터 단위 비용 집계.
--- billing_origin_product = 'ALL_PURPOSE'는 job_id가 NULL이므로
--- cluster_id 단위로만 집계한다.
+-- Cost aggregation at the All-Purpose cluster level.
+-- Because billing_origin_product = 'ALL_PURPOSE' has a NULL job_id,
+-- aggregation is done at the cluster_id level only.
 -- =================================================================
 
 CREATE OR REPLACE TEMPORARY VIEW ap_cluster_cost_v
@@ -353,8 +353,8 @@ GROUP BY u.workspace_id, u.usage_metadata.cluster_id;
 -- =================================================================
 -- 8b. ap_cluster_run_count_v  [TEMPORARY VIEW]
 -- =================================================================
--- All-Purpose 클러스터별 distinct job_run 수.
--- 비용 균등 배분 시 분모로 사용한다.
+-- Distinct job_run count per All-Purpose cluster.
+-- Used as the denominator when distributing cost evenly.
 -- =================================================================
 
 CREATE OR REPLACE TEMPORARY VIEW ap_cluster_run_count_v
@@ -370,20 +370,20 @@ GROUP BY workspace_id, cluster_id;
 -- =================================================================
 -- 8c. cluster_job_run_cost_v  [TEMPORARY VIEW]
 -- =================================================================
--- 잡 실행 단위 비용 (DBU + USD).
--- is_serverless 컬럼으로 serverless/classic 비용을 구분한다.
+-- Cost at the job run level (DBU + USD).
+-- The is_serverless column distinguishes serverless/classic cost.
 --
 -- Job Compute / Serverless (billing_origin_product = 'JOBS'):
---   usage_metadata에 job_id, job_run_id가 존재하므로 직접 사용.
+--   usage_metadata has job_id and job_run_id, so they are used directly.
 -- All-Purpose (billing_origin_product = 'ALL_PURPOSE'):
---   usage_metadata에 job_id가 NULL이므로, cluster_id 단위 비용을
---   exploded_task_runs_v를 통해 job_id/job_run_id로 매핑한다.
---   비용은 해당 클러스터에서 실행된 job_run 수 비례로 균등 배분한다.
+--   usage_metadata has a NULL job_id, so the cluster_id-level cost is
+--   mapped to job_id/job_run_id via exploded_task_runs_v.
+--   Cost is distributed evenly in proportion to the number of job_runs on that cluster.
 -- =================================================================
 
 CREATE OR REPLACE TEMPORARY VIEW cluster_job_run_cost_v
 AS
--- Part 1: Job Compute / Serverless — usage_metadata에 job_id 존재
+-- Part 1: Job Compute / Serverless — usage_metadata has job_id
 SELECT
   u.workspace_id,
   u.usage_metadata.cluster_id                AS cluster_id,
@@ -411,7 +411,7 @@ GROUP BY u.workspace_id, u.usage_metadata.cluster_id, u.usage_metadata.job_id,
 
 UNION ALL
 
--- Part 2: All-Purpose — cluster_id 단위 비용을 job_run별로 균등 배분
+-- Part 2: All-Purpose — distribute cluster_id-level cost evenly per job_run
 SELECT
   ac.workspace_id,
   ac.cluster_id,
@@ -434,13 +434,15 @@ JOIN (
 
 
 -- =================================================================
--- 9. instance_workload_analysis_mv  [TABLE] — 최종 출력
+-- 9. instance_workload_analysis_mv  [TABLE] — final output
 -- =================================================================
--- 인스턴스 수준 프로파일링: 활용률 + 클러스터 구성 + 잡 실행.
--- TEMPORARY VIEW들을 조인하여 최종 MV로 영속화한다.
+-- Instance-level profiling: utilization + cluster config + job runs.
+-- Joins the TEMPORARY VIEWs and persists them as the final MV.
 -- =================================================================
 
-CREATE OR REPLACE TABLE instance_workload_analysis_mv AS
+CREATE OR REPLACE TABLE instance_workload_analysis_mv
+COMMENT 'Instance (node) level workload profiling. Final table joining per-instance CPU/memory/network utilization over the last 90-day window with cluster config snapshot and job run info. Workspace scoped.'
+AS
 SELECT
   iu.workspace_id,
   iu.cluster_id,
@@ -515,9 +517,9 @@ LEFT JOIN job_config_latest_v j
 -- =================================================================
 -- 8b. job_run_timeline_v  [TEMPORARY VIEW]
 -- =================================================================
--- Job Run 단위 시간 집계 (job_run_timeline 기반).
--- Serverless job은 cluster_id/compute_ids가 없어 task_run_stats_v에
--- 포함되지 않으므로, job_run_timeline에서 시간 정보를 보완한다.
+-- Time aggregation at the Job Run level (based on job_run_timeline).
+-- Serverless jobs have no cluster_id/compute_ids, so they are not included in
+-- task_run_stats_v, and job_run_timeline supplements the time info.
 -- =================================================================
 
 CREATE OR REPLACE TEMPORARY VIEW job_run_timeline_v
@@ -536,14 +538,16 @@ GROUP BY workspace_id, job_id, run_id;
 
 
 -- =================================================================
--- 10. job_run_cost_analysis_mv  [TABLE] — 최종 출력
+-- 10. job_run_cost_analysis_mv  [TABLE] — final output
 -- =================================================================
--- Job Run 단위 비용 프로파일.
--- cluster_job_run_cost_v를 driving table로 1:1 JOIN만 수행.
--- instance_utilization은 downstream sizing MV에서 직접 집계한다.
+-- Cost profile at the Job Run level.
+-- Uses cluster_job_run_cost_v as the driving table, performing only 1:1 JOINs.
+-- instance_utilization is aggregated directly in the downstream sizing MV.
 -- =================================================================
 
-CREATE OR REPLACE TABLE job_run_cost_analysis_mv AS
+CREATE OR REPLACE TABLE job_run_cost_analysis_mv
+COMMENT 'Cost analysis at the Job Run level. Joins DBU/USD cost per cluster x job run (billing.usage x list_prices) with cluster config, job metadata, and run time. Distinguishes classic/serverless. Last 90-day window.'
+AS
 SELECT
   cjc.workspace_id,
   cjc.cluster_id,
@@ -598,18 +602,20 @@ LEFT JOIN job_run_timeline_v jrt
 
 
 -- =================================================================
--- 12. all_purpose_cluster_sizing_mv  [TABLE] — 최종 출력
+-- 12. all_purpose_cluster_sizing_mv  [TABLE] — final output
 -- =================================================================
--- All-Purpose 클러스터 단위 Right Sizing 대상 식별.
--- All-Purpose 클러스터는 여러 잡이 동일 클러스터를 공유하므로,
--- per-job recommendation은 오해를 유발한다.
--- cluster_id 기준으로 집계하여 클러스터 전체 관점에서 권고를 생성한다.
--- job_run_cost_analysis_mv에서 cluster_source IN ('UI', 'API') 행만 추출.
+-- Identify Right-Sizing targets at the All-Purpose cluster level.
+-- Because an All-Purpose cluster is shared by multiple jobs,
+-- per-job recommendations would be misleading.
+-- Aggregate by cluster_id to generate recommendations from a whole-cluster perspective.
+-- Extract only rows with cluster_source IN ('UI', 'API') from job_run_cost_analysis_mv.
 -- =================================================================
 
-CREATE OR REPLACE TABLE all_purpose_cluster_sizing_mv AS
+CREATE OR REPLACE TABLE all_purpose_cluster_sizing_mv
+COMMENT 'Right-Sizing recommendation at the All-Purpose (UI/API) cluster level. Because it is shared by multiple jobs, utilization and cost are aggregated by cluster_id and a top-down CASE computes sizing_recommendation and estimated savings. Thresholds are adjustable via job parameters.'
+AS
 WITH cluster_util AS (
-  -- cluster 단위 utilization 집계 (instance_utilization_v에서 직접)
+  -- utilization aggregation at the cluster level (directly from instance_utilization_v)
   SELECT
     workspace_id, cluster_id,
     COUNT(DISTINCT instance_id)                     AS instance_count,
@@ -629,7 +635,7 @@ WITH cluster_util AS (
   GROUP BY workspace_id, cluster_id
 ),
 cluster_run_totals AS (
-  -- 분석 윈도우(90일) 전체 기준 cluster 실행 횟수. sizing 판정의 표본 게이트.
+  -- cluster run count over the whole analysis window (90 days). Sample gate for sizing judgment.
   SELECT workspace_id, cluster_id,
          COUNT(DISTINCT job_run_id) AS window_run_count
   FROM job_run_cost_analysis_mv
@@ -655,7 +661,7 @@ SELECT
   ROUND(AVG(cjc.run_duration_minutes), 2)                     AS avg_run_duration_minutes,
   ROUND(STDDEV(cjc.run_duration_minutes), 2)                  AS stddev_run_duration_minutes,
 
-  -- utilization: cluster 단위 직접 집계 (1:1 JOIN)
+  -- utilization: direct aggregation at the cluster level (1:1 JOIN)
   cu.avg_cpu_util,
   cu.median_cpu_util,
   cu.p95_cpu_util                                            AS p95_cpu_util,
@@ -791,17 +797,19 @@ GROUP BY
 
 
 -- =================================================================
--- 13. job_compute_sizing_mv  [TABLE] — 최종 출력
+-- 13. job_compute_sizing_mv  [TABLE] — final output
 -- =================================================================
--- Job Compute 단위 Right Sizing 대상 식별.
--- Job Compute는 잡과 클러스터가 1:1 매핑이므로 per-job 권고가 정확하다.
--- job_run_cost_analysis_mv에서 cluster_source = 'JOB' 행만 추출.
+-- Identify Right-Sizing targets at the Job Compute level.
+-- For Job Compute, job and cluster map 1:1, so per-job recommendations are accurate.
+-- Extract only rows with cluster_source = 'JOB' from job_run_cost_analysis_mv.
 -- =================================================================
 
-CREATE OR REPLACE TABLE job_compute_sizing_mv AS
+CREATE OR REPLACE TABLE job_compute_sizing_mv
+COMMENT 'Right-Sizing recommendation at the Job Compute (cluster_source=JOB) level. Job-to-cluster is a 1:1 mapping, so per-job recommendations by job_id are accurate. Because the clusters are ephemeral, cluster_id/cluster_name are NULL.'
+AS
 WITH job_clusters AS (
-  -- Job Compute는 run마다 ephemeral cluster가 생성된다. run/비용을 job_id 단위로
-  -- 집계한다(분석 윈도우 90일 전체). run_count = 윈도우 내 실행 횟수.
+  -- Job Compute creates an ephemeral cluster per run. Aggregate runs/cost by job_id
+  -- (over the whole 90-day analysis window). run_count = number of runs within the window.
   SELECT
     workspace_id, job_id,
     MAX(job_name)                              AS job_name,
@@ -824,8 +832,8 @@ WITH job_clusters AS (
   GROUP BY workspace_id, job_id
 ),
 job_util AS (
-  -- 잡이 윈도우 내 사용한 모든 run-cluster의 util을 job_id 단위로 집계.
-  -- ephemeral cluster = 1 run 이므로 사실상 run별 util의 평균.
+  -- Aggregate the util of all run-clusters the job used within the window, by job_id.
+  -- Since ephemeral cluster = 1 run, this is effectively the average of per-run util.
   SELECT
     c.workspace_id, c.job_id,
     COUNT(DISTINCT iu.instance_id)             AS instance_count,
@@ -989,16 +997,18 @@ LEFT JOIN job_spill_v js
 
 
 -- =================================================================
--- 11. right_sizing_analysis_mv  [TABLE] — 하위호환 UNION
+-- 11. right_sizing_analysis_mv  [TABLE] — backward-compatible UNION
 -- =================================================================
--- MV 12 (All-Purpose, per-cluster) + MV 13 (Job Compute, per-job)의
--- UNION ALL. 대시보드(6.right_sizing_targets)의 하위호환성을 위해 유지.
--- All-Purpose 행은 job_id/job_name을 NULL로 채운다.
--- Job Compute 행은 job_count를 NULL로 채운다.
+-- UNION ALL of MV 12 (All-Purpose, per-cluster) + MV 13 (Job Compute, per-job).
+-- Kept for backward compatibility of the dashboard (6.right_sizing_targets).
+-- All-Purpose rows fill job_id/job_name with NULL.
+-- Job Compute rows fill job_count with NULL.
 -- =================================================================
 
-CREATE OR REPLACE TABLE right_sizing_analysis_mv AS
--- All-Purpose: per-cluster, 잡 특정 컬럼은 NULL
+CREATE OR REPLACE TABLE right_sizing_analysis_mv
+COMMENT 'Backward-compatible combined table that UNIONs all_purpose_cluster_sizing_mv (per-cluster) + job_compute_sizing_mv (per-job). For the dashboard right_sizing_targets widget. compute_type distinguishes the two sources, and non-applicable columns (job_id/job_name for All-Purpose, job_count for Job Compute) are NULL.'
+AS
+-- All-Purpose: per-cluster, job-specific columns are NULL
 SELECT
   workspace_id,
   cluster_id,
@@ -1042,7 +1052,7 @@ FROM all_purpose_cluster_sizing_mv
 
 UNION ALL
 
--- Job Compute: per-job, job_count는 NULL (1:1 매핑이므로 불필요)
+-- Job Compute: per-job, job_count is NULL (unnecessary since 1:1 mapping)
 SELECT
   workspace_id,
   cluster_id,
@@ -1084,6 +1094,183 @@ SELECT
   estimated_savings_usd
 FROM job_compute_sizing_mv
 ;
+
+-- ===== Column comments (co-located; CTAS cannot inline column comments) =====
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN workspace_id COMMENT 'Workspace ID (analysis scope)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN cluster_id COMMENT 'Cluster ID';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN cluster_name COMMENT 'Cluster name (system.compute.clusters SCD2 latest snapshot)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN cluster_source COMMENT 'Cluster creation source (UI/API=All-Purpose, JOB/PIPELINE etc.)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN owned_by COMMENT 'Cluster owner account';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN instance_id COMMENT 'Instance (node) ID';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN driver COMMENT 'Whether it is a driver node (TRUE=driver, FALSE=worker)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN node_type COMMENT 'Observed node instance type (cloud instance type name)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN driver_node_type COMMENT 'Configured driver node type';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN worker_node_type COMMENT 'Configured worker node type';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN configured_workers COMMENT 'Configured fixed worker count (fixed-size cluster, system.compute.clusters.worker_count)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN min_autoscale_workers COMMENT 'Autoscale minimum worker count';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN max_autoscale_workers COMMENT 'Autoscale maximum worker count';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN dbr_version COMMENT 'Databricks Runtime version';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN policy_id COMMENT 'Cluster policy ID';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN tags COMMENT 'Cluster user-defined tags (MAP)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN instance_start_time COMMENT 'Instance observation start time (MIN start_time within the 90-day window)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN instance_end_time COMMENT 'Instance observation end time (MAX end_time)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN avg_node_count COMMENT 'Average active worker count per minute (autoscale behavior analysis)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN max_node_count COMMENT 'Maximum active worker count per minute';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN stddev_node_count COMMENT 'Standard deviation of active worker count per minute';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN avg_cpu_util COMMENT 'CPU utilization average % (cpu_user + cpu_system)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN median_cpu_util COMMENT 'CPU utilization median % (P50)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN max_cpu_util COMMENT 'CPU utilization maximum %';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN stddev_cpu_util COMMENT 'CPU utilization standard deviation (variability)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN avg_cpu_wait COMMENT 'CPU I/O wait ratio average % (iowait)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN max_cpu_wait COMMENT 'CPU I/O wait ratio maximum %';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN avg_mem_util COMMENT 'Memory usage average %';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN median_mem_util COMMENT 'Memory usage median % (P50)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN max_mem_util COMMENT 'Memory usage maximum %';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN stddev_mem_util COMMENT 'Memory usage standard deviation (variability)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN avg_net_mb_rec_minute COMMENT 'Network received average per minute (MB)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN avg_net_mb_sent_minute COMMENT 'Network sent average per minute (MB)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN workload_profile COMMENT 'Workload profile classification (CPU Intensive / Memory Intensive / Balanced - High/Moderate Utilization / Under-utilized)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN job_id COMMENT 'Job ID that ran on this instance';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN job_name COMMENT 'Job name (system.lakeflow.jobs)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN run_as COMMENT 'Job run-as principal';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN creator_id COMMENT 'Job creator ID';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN job_run_id COMMENT 'Job run ID';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN run_start_time COMMENT 'Job run start time (alias of period_start_time)';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN period_start_time COMMENT 'Job run period start time';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN period_end_time COMMENT 'Job run period end time';
+ALTER TABLE instance_workload_analysis_mv ALTER COLUMN job_run_duration_minutes COMMENT 'Job run duration in minutes = period_end - period_start';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN workspace_id COMMENT 'Workspace ID';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN cluster_id COMMENT 'Cluster ID';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN is_serverless COMMENT 'Whether it is Serverless compute (billing.usage.product_features.is_serverless)';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN cluster_name COMMENT 'Cluster name';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN cluster_source COMMENT 'Cluster creation source (UI/API/JOB etc.)';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN owned_by COMMENT 'Cluster owner account';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN worker_node_type COMMENT 'Configured worker node type';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN configured_workers COMMENT 'Configured fixed worker count';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN min_autoscale_workers COMMENT 'Autoscale minimum worker count';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN max_autoscale_workers COMMENT 'Autoscale maximum worker count';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN dbr_version COMMENT 'Databricks Runtime version';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN policy_id COMMENT 'Cluster policy ID';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN job_id COMMENT 'Job ID';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN job_name COMMENT 'Job name';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN run_as COMMENT 'Job run-as principal';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN creator_id COMMENT 'Job creator ID';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN job_run_id COMMENT 'Job run ID';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN run_start_time COMMENT 'Run start time (task_run_stats first, else supplemented by job_run_timeline)';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN run_end_time COMMENT 'Run end time';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN run_duration_minutes COMMENT 'Run duration in minutes';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN task_count COMMENT 'Distinct task count included in the run (based on successful runs)';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN total_dbus COMMENT 'Total DBUs consumed by the run';
+ALTER TABLE job_run_cost_analysis_mv ALTER COLUMN total_cost_usd COMMENT 'Total run cost (USD, based on list price)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN workspace_id COMMENT 'Workspace ID';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN cluster_id COMMENT 'Cluster ID';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN cluster_name COMMENT 'Cluster name';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN cluster_source COMMENT 'Cluster creation source (UI or API)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN owned_by COMMENT 'Cluster owner account';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN worker_node_type COMMENT 'Configured worker node type';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN configured_workers COMMENT 'Configured fixed worker count';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN min_autoscale_workers COMMENT 'Autoscale minimum worker count';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN max_autoscale_workers COMMENT 'Autoscale maximum worker count';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN dbr_version COMMENT 'Databricks Runtime version';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN policy_id COMMENT 'Cluster policy ID';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN run_start_time COMMENT 'Most recent run start date (DATE)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN job_count COMMENT 'Distinct job count that shared this cluster';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN run_count COMMENT 'Distinct job run count';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN avg_run_duration_minutes COMMENT 'Average run duration in minutes';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN stddev_run_duration_minutes COMMENT 'Run duration standard deviation in minutes';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN avg_cpu_util COMMENT 'Cluster instance CPU utilization average %';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN median_cpu_util COMMENT 'CPU utilization median % (P50)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN p95_cpu_util COMMENT 'CPU utilization P95 % (sustained-load metric)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN peak_cpu_util COMMENT 'CPU utilization maximum % (instantaneous peak)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN avg_stddev_cpu COMMENT 'Average of per-instance CPU standard deviation (variability)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN avg_mem_util COMMENT 'Memory usage average %';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN median_mem_util COMMENT 'Memory usage median % (P50)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN p95_mem_util COMMENT 'Memory usage P95 % (sustained-load metric)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN peak_mem_util COMMENT 'Memory usage maximum % (instantaneous peak)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN avg_stddev_mem COMMENT 'Average of per-instance memory standard deviation (variability)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN avg_cpu_wait COMMENT 'CPU I/O wait ratio average % (iowait, IO_BOTTLENECK signal)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN max_swap_pct COMMENT 'Memory swap maximum % (RAM exhaustion signal, CONSIDER_UPSIZE)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN spill_gb COMMENT 'Total disk spill over the last 90 days (GB, system.query.history)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN avg_instance_count COMMENT 'Observed distinct instance count';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN total_dbus COMMENT 'Total DBUs consumed';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN total_cost_usd COMMENT 'Total cost (USD)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN sizing_recommendation COMMENT 'Right-Sizing verdict (BURST_PATTERN / DEFINITE_DOWNSIZE / LIKELY_DOWNSIZE / CONSIDER_UPSIZE / IO_BOTTLENECK / NO_UTIL_DATA / INSUFFICIENT_RUNS / APPROPRIATE). First match in the top-down CASE wins.';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN recommendation_detail COMMENT 'Verdict rationale and recommended-action detail (in Korean, states the actual cause such as swap/spill/memory/CPU)';
+ALTER TABLE all_purpose_cluster_sizing_mv ALTER COLUMN estimated_savings_usd COMMENT 'Estimated savings when downsizing (USD, DEFINITE=50%/LIKELY=30%)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN workspace_id COMMENT 'Workspace ID';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN cluster_id COMMENT 'Cluster ID (NULL because Job Compute is ephemeral)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN cluster_name COMMENT 'Cluster name (NULL because of per-job aggregation)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN cluster_source COMMENT 'Cluster creation source (JOB)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN job_id COMMENT 'Job ID';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN job_name COMMENT 'Job name';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN owned_by COMMENT 'Cluster owner account';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN worker_node_type COMMENT 'Configured worker node type';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN configured_workers COMMENT 'Configured fixed worker count';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN min_autoscale_workers COMMENT 'Autoscale minimum worker count';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN max_autoscale_workers COMMENT 'Autoscale maximum worker count';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN dbr_version COMMENT 'Databricks Runtime version';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN policy_id COMMENT 'Cluster policy ID';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN run_start_time COMMENT 'Most recent run start date (DATE)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN run_count COMMENT 'Distinct job run count (90-day window)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN avg_run_duration_minutes COMMENT 'Average run duration in minutes';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN stddev_run_duration_minutes COMMENT 'Run duration standard deviation in minutes';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN avg_cpu_util COMMENT 'CPU utilization average %';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN median_cpu_util COMMENT 'CPU utilization median % (P50)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN p95_cpu_util COMMENT 'CPU utilization P95 % (sustained-load metric)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN peak_cpu_util COMMENT 'CPU utilization maximum % (instantaneous peak)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN avg_stddev_cpu COMMENT 'Average of per-instance CPU standard deviation (variability)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN avg_mem_util COMMENT 'Memory usage average %';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN median_mem_util COMMENT 'Memory usage median % (P50)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN p95_mem_util COMMENT 'Memory usage P95 % (sustained-load metric)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN peak_mem_util COMMENT 'Memory usage maximum % (instantaneous peak)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN avg_stddev_mem COMMENT 'Average of per-instance memory standard deviation (variability)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN avg_cpu_wait COMMENT 'CPU I/O wait ratio average % (iowait, IO_BOTTLENECK signal)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN max_swap_pct COMMENT 'Memory swap maximum % (RAM exhaustion signal, CONSIDER_UPSIZE)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN spill_gb COMMENT 'Total disk spill over the last 90 days (GB, per job, system.query.history)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN avg_instance_count COMMENT 'Observed distinct instance count';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN total_dbus COMMENT 'Total DBUs consumed';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN total_cost_usd COMMENT 'Total cost (USD)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN sizing_recommendation COMMENT 'Right-Sizing verdict (BURST_PATTERN / DEFINITE_DOWNSIZE / LIKELY_DOWNSIZE / CONSIDER_UPSIZE / IO_BOTTLENECK / NO_UTIL_DATA / INSUFFICIENT_RUNS / APPROPRIATE). First match in the top-down CASE wins.';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN recommendation_detail COMMENT 'Verdict rationale and recommended-action detail (in Korean, states the actual cause such as swap/spill/memory/CPU)';
+ALTER TABLE job_compute_sizing_mv ALTER COLUMN estimated_savings_usd COMMENT 'Estimated savings when downsizing (USD, DEFINITE=50%/LIKELY=30%)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN workspace_id COMMENT 'Workspace ID';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN cluster_id COMMENT 'Cluster ID (NULL for Job Compute rows)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN cluster_name COMMENT 'Cluster name (NULL for Job Compute rows)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN cluster_source COMMENT 'Cluster creation source (UI/API/JOB)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN compute_type COMMENT 'Compute category: All-Purpose or Job Compute';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN job_id COMMENT 'Job ID (present only for Job Compute rows, NULL for All-Purpose)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN job_name COMMENT 'Job name (present only for Job Compute rows)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN job_count COMMENT 'Distinct job count that shared the cluster (All-Purpose rows only, NULL for Job Compute)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN owned_by COMMENT 'Cluster owner account';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN worker_node_type COMMENT 'Configured worker node type';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN configured_workers COMMENT 'Configured fixed worker count';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN min_autoscale_workers COMMENT 'Autoscale minimum worker count';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN max_autoscale_workers COMMENT 'Autoscale maximum worker count';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN dbr_version COMMENT 'Databricks Runtime version';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN policy_id COMMENT 'Cluster policy ID';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN run_start_time COMMENT 'Most recent run start date (DATE)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN run_count COMMENT 'Distinct job run count';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN avg_run_duration_minutes COMMENT 'Average run duration in minutes';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN stddev_run_duration_minutes COMMENT 'Run duration standard deviation in minutes';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN avg_cpu_util COMMENT 'CPU utilization average %';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN median_cpu_util COMMENT 'CPU utilization median % (P50)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN p95_cpu_util COMMENT 'CPU utilization P95 %';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN peak_cpu_util COMMENT 'CPU utilization maximum % (instantaneous peak)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN avg_stddev_cpu COMMENT 'Average of per-instance CPU standard deviation (variability)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN avg_cpu_wait COMMENT 'CPU I/O wait ratio average % (iowait)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN max_swap_pct COMMENT 'Memory swap maximum % (RAM exhaustion signal)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN spill_gb COMMENT 'Total disk spill over the last 90 days (GB)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN avg_mem_util COMMENT 'Memory usage average %';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN median_mem_util COMMENT 'Memory usage median % (P50)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN p95_mem_util COMMENT 'Memory usage P95 %';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN peak_mem_util COMMENT 'Memory usage maximum % (instantaneous peak)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN avg_stddev_mem COMMENT 'Average of per-instance memory standard deviation (variability)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN avg_instance_count COMMENT 'Observed distinct instance count';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN total_dbus COMMENT 'Total DBUs consumed';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN total_cost_usd COMMENT 'Total cost (USD)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN sizing_recommendation COMMENT 'Right-Sizing verdict (BURST_PATTERN / DEFINITE_DOWNSIZE / LIKELY_DOWNSIZE / CONSIDER_UPSIZE / IO_BOTTLENECK / NO_UTIL_DATA / INSUFFICIENT_RUNS / APPROPRIATE)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN recommendation_detail COMMENT 'Verdict rationale and recommended-action detail (in Korean)';
+ALTER TABLE right_sizing_analysis_mv ALTER COLUMN estimated_savings_usd COMMENT 'Estimated savings when downsizing (USD)';
 """
 SQL_SCRIPT = SQL_SCRIPT.replace("${workspace_id}", WORKSPACE_ID)
 for _k, _v in THRESHOLDS.items():

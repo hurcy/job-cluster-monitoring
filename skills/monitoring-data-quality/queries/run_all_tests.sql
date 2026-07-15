@@ -1,3 +1,6 @@
+-- Monitoring reconciliation suite (T01-T17). Substitute {{catalog}}/{{schema}}.
+-- Read-only. All rows should read PASS. Mirrors workload_analysis/validation/run_all_tests.sql.
+
 -- =====================================================================
 -- Run all validations: aggregate consistency tests for all MVs
 -- =====================================================================
@@ -8,8 +11,8 @@
 -- If every row is PASS, the aggregate consistency validation passes.
 --
 -- Parameters:
---   ${source_catalog}   - pipeline target catalog (e.g. hurcy)
---   ${analytics_schema} - pipeline target schema  (e.g. test)
+--   {{catalog}}   - pipeline target catalog (e.g. hurcy)
+--   {{schema}} - pipeline target schema  (e.g. test)
 -- =====================================================================
 
 WITH
@@ -40,7 +43,7 @@ job_run_all AS (
               AND (workspace_id IS NULL OR job_id IS NULL OR job_run_id IS NULL
                    OR total_dbus IS NULL OR total_cost_usd IS NULL) THEN 1 ELSE 0 END) AS null_key_cnt,
     COUNT(*) AS total_rows
-  FROM ${source_catalog}.${analytics_schema}.job_run_cost_analysis_mv
+  FROM {{catalog}}.{{schema}}.job_run_cost_analysis_mv
 ),
 ap_mv AS (
   SELECT
@@ -49,7 +52,7 @@ ap_mv AS (
     COALESCE(SUM(avg_run_duration_minutes * run_count), 0) AS total_duration,
     COALESCE(SUM(CASE WHEN total_dbus < 0 THEN 1 ELSE 0 END), 0) AS neg_dbus_cnt,
     COUNT(*) AS row_count
-  FROM ${source_catalog}.${analytics_schema}.all_purpose_cluster_sizing_mv
+  FROM {{catalog}}.{{schema}}.all_purpose_cluster_sizing_mv
 ),
 jc_mv AS (
   SELECT
@@ -58,7 +61,7 @@ jc_mv AS (
     COALESCE(SUM(avg_run_duration_minutes * run_count), 0) AS total_duration,
     COALESCE(SUM(CASE WHEN total_dbus < 0 THEN 1 ELSE 0 END), 0) AS neg_dbus_cnt,
     COUNT(*) AS row_count
-  FROM ${source_catalog}.${analytics_schema}.job_compute_sizing_mv
+  FROM {{catalog}}.{{schema}}.job_compute_sizing_mv
 ),
 rst_mv AS (
   SELECT
@@ -70,11 +73,11 @@ rst_mv AS (
     COALESCE(SUM(CASE WHEN compute_type = 'All-Purpose' THEN total_cost_usd ELSE 0 END), 0) AS ap_cost,
     COALESCE(SUM(CASE WHEN compute_type = 'Job Compute' THEN total_cost_usd ELSE 0 END), 0) AS jc_cost,
     COUNT(*) AS row_count
-  FROM ${source_catalog}.${analytics_schema}.right_sizing_analysis_mv
+  FROM {{catalog}}.{{schema}}.right_sizing_analysis_mv
 ),
 iwp_mv AS (
   SELECT COUNT(*) AS row_count
-  FROM ${source_catalog}.${analytics_schema}.instance_workload_analysis_mv
+  FROM {{catalog}}.{{schema}}.instance_workload_analysis_mv
 )
 
 -- ---------------------------------------------------------------
