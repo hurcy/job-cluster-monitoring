@@ -39,15 +39,15 @@ targets:
         lookup:
           warehouse: "Shared Endpoint"
 
-  # AWS e2-demo-field-eng — system.compute.clusters accessible (for Right-Sizing validation)
-  e2demo:
+  # AWS e2-demo-west — system.compute.clusters accessible
+  e2west:
     mode: development
     workspace:
-      host: https://e2-demo-field-eng.cloud.databricks.com
+      host: https://e2-demo-west.cloud.databricks.com
       profile: e2-demo-west
     variables:
       catalog: "main"
       analytics_schema: "cinyoung_hur_monitoring"
-      workspace_id: "1444828305810485"
-      warehouse_id: "8baced1ff014912d"   # Shared endpoint (explicit instead of lookup)
+      workspace_id: "2556758628403379"
+      warehouse_id: "75fd8278393d07eb"   # Shared Endpoint (explicit instead of lookup)
       node_type_id: "m5d.xlarge"         # AWS (4 vCPU/16GB, local NVMe SSD)
